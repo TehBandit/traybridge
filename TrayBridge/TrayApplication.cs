@@ -72,7 +72,11 @@ internal sealed class TrayApplication : ApplicationContext
     }
     internal void Save()
     {
-        recovery = false; Persist();
+        recovery = false; SavePreferences();
+    }
+    internal void SavePreferences()
+    {
+        Persist();
         using var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true);
         if (Settings.StartWithWindows) key?.SetValue("TrayBridge", $"\"{Environment.ProcessPath}\" --hidden");
         else key?.DeleteValue("TrayBridge", false);
@@ -109,7 +113,11 @@ internal sealed class TrayApplication : ApplicationContext
             try
             {
                 var path = Path.Combine(NativeHost.DataDirectory, "status-explorer.json");
-                using var status = JsonDocument.Parse(File.ReadAllText(path));
+                // The helper atomically replaces this file. Allow replacement
+                // while reading so its one-time active status cannot be lost.
+                using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                using var reader = new StreamReader(file);
+                using var status = JsonDocument.Parse(reader.ReadToEnd());
                 using var shell = Process.GetProcessesByName("explorer").FirstOrDefault(p => p.SessionId == Process.GetCurrentProcess().SessionId);
                 if (shell is null) { attached = false; Status = "Waiting for the desktop shell…"; Updated?.Invoke(); return; }
                 if (status.RootElement.GetProperty("pid").GetInt32() != shell.Id) { attached = false; await Enable(); }

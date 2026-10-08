@@ -8,6 +8,7 @@ internal static class Checks
         var primary = new DisplayInfo("physical-A", @"\\.\DISPLAY1", "Primary", true, new(0, 0, 1920, 1080));
         var secondary = new DisplayInfo("physical-B", @"\\.\DISPLAY2", "Secondary", false, new(1920, 0, 1920, 1080));
         var settings = new AppSettings { Defaults = new() { AllApplications = false, Icons = ["common"] } };
+        if (settings.Appearance != "System") throw new Exception("New settings do not follow the system appearance.");
         if (!ReferenceEquals(settings.For(secondary), settings.Defaults)) throw new Exception("Global inheritance failed.");
         settings.ApplyTo([primary, secondary], new TrayRule { AllApplications = false, Icons = ["one"], ExcludedIcons = ["hidden"], SystemIcons = ["volume"] });
         settings.Overrides[primary.Id].Icons.Add("two");
@@ -24,14 +25,17 @@ internal static class Checks
         configuration.ApplyTo([primary], new TrayRule { AllApplications = false, Icons = ["primary"] });
         configuration.ApplyTo([secondary], new TrayRule { AllApplications = false, Icons = ["secondary"] });
         configuration.CaptureGlobalConfiguration();
+        configuration.Appearance = "Dark";
         configuration.For(primary).Icons.Add("later");
         configuration.ResetToWindows();
         if (configuration.Active || configuration.Overrides.Count != 0 || !configuration.Defaults.AllApplications || configuration.GlobalConfiguration is null || !configuration.StartWithWindows) throw new Exception("Windows reset did not preserve the global config and startup preference.");
         configuration.RestoreGlobalConfiguration();
+        if (configuration.Appearance != "Dark") throw new Exception("Reset or global restore changed the appearance preference.");
         if (!configuration.For(primary).Icons.SetEquals(["primary"]) || !configuration.For(secondary).Icons.SetEquals(["secondary"]) || configuration.Defaults.Clock) throw new Exception("Complete global configuration did not restore independent monitor rules.");
         configuration.For(secondary).Icons.Add("another change");
         if (configuration.GlobalConfiguration.Overrides[secondary.Id].Icons.Contains("another change")) throw new Exception("Restoring global configuration shares mutable state with the saved snapshot.");
         var persisted = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(configuration))!;
+        if (persisted.Appearance != "Dark") throw new Exception("Appearance did not survive settings serialization.");
         if (persisted.GlobalConfiguration is null || !persisted.GlobalConfiguration.Active || !persisted.GlobalConfiguration.Overrides[secondary.Id].Icons.SetEquals(["secondary"])) throw new Exception("Global configuration did not survive settings serialization.");
         using var independent = JsonDocument.Parse(JsonSerializer.Serialize(settings.Resolve([primary, secondary])));
         var resolvedPrimary = independent.RootElement.GetProperty("monitors")[0];
@@ -52,7 +56,7 @@ internal static class Checks
         if (disabled.RootElement.GetProperty("monitors")[0].GetProperty("icons").EnumerateArray().Any(v => v.GetString() == "secondary-only")) throw new Exception("Disabled rules unexpectedly create fallback assignments.");
         settings.Overrides.Remove(secondary.Id);
         if (!ReferenceEquals(settings.For(secondary), settings.Defaults)) throw new Exception("Reset to global defaults failed.");
-        File.WriteAllText(Path.Combine(NativeHost.DataDirectory, "policy-report.json"), JsonSerializer.Serialize(new { Passed = true, Checks = new[] { "global inheritance", "independent bulk rules and exclusions", "single-monitor updates preserve other monitors", "native exclusion settings", "legacy selection upgrade", "complete global snapshot", "Windows reset preserves snapshot and startup preference", "independent global restoration", "global snapshot persistence", "disconnect recovery", "reconnect routing", "disabled assignments", "reset overrides" } }));
+        File.WriteAllText(Path.Combine(NativeHost.DataDirectory, "policy-report.json"), JsonSerializer.Serialize(new { Passed = true, Checks = new[] { "system appearance by default", "appearance persistence", "reset and global restore preserve appearance", "global inheritance", "independent bulk rules and exclusions", "single-monitor updates preserve other monitors", "native exclusion settings", "legacy selection upgrade", "complete global snapshot", "Windows reset preserves snapshot and startup preference", "independent global restoration", "global snapshot persistence", "disconnect recovery", "reconnect routing", "disabled assignments", "reset overrides" } }));
     }
     internal static void Live(bool route)
     {

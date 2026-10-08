@@ -19,6 +19,7 @@ internal sealed class AppSettings
     public int Version { get; set; } = 2;
     public bool Active { get; set; }
     public bool StartWithWindows { get; set; }
+    public string Appearance { get; set; } = "System";
     public TrayRule Defaults { get; set; } = new();
     public Dictionary<string, TrayRule> Overrides { get; set; } = [];
     public Dictionary<string, string> IconLabels { get; set; } = [];

@@ -6,6 +6,7 @@ namespace TrayBridge;
 
 internal static class UiTheme
 {
+    internal static void SetAppearance(string appearance) => Application.SetColorMode(appearance switch { "Dark" => SystemColorMode.Dark, "Light" => SystemColorMode.Classic, _ => SystemColorMode.System });
     internal static bool Dark => Application.IsDarkModeEnabled;
     internal static Color Background => SystemInformation.HighContrast ? SystemColors.Control : Dark ? Color.FromArgb(32, 32, 32) : Color.FromArgb(243, 243, 243);
     internal static Color Surface => SystemInformation.HighContrast ? SystemColors.Window : Dark ? Color.FromArgb(43, 43, 43) : Color.White;
@@ -36,7 +37,7 @@ internal sealed class SettingsCard : Panel
 {
     internal SettingsCard()
     {
-        DoubleBuffered = true; BackColor = UiTheme.Surface; Padding = new(20);
+        DoubleBuffered = true; BackColor = UiTheme.Surface; Padding = new(12);
         SetStyle(ControlStyles.ResizeRedraw, true);
     }
     protected override void OnPaintBackground(PaintEventArgs e)
@@ -59,7 +60,7 @@ internal sealed class ModernButton : Button
     internal ModernButton()
     {
         FlatStyle = FlatStyle.Flat; FlatAppearance.BorderSize = 0;
-        Size = new(150, 38); Margin = new(0, 0, 8, 0); Cursor = Cursors.Hand;
+        Size = new(150, 32); Margin = new(0, 0, 6, 0); Cursor = Cursors.Hand;
         SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
     }
     protected override void OnMouseEnter(EventArgs e) { hover = true; Invalidate(); base.OnMouseEnter(e); }
@@ -78,6 +79,27 @@ internal sealed class ModernButton : Button
         var textColor = !Enabled ? UiTheme.Muted : Primary ? SystemColors.HighlightText : UiTheme.Text;
         TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, textColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -4, -4), textColor, fillColor);
+    }
+}
+
+internal sealed class IconSelectionList : CheckedListBox
+{
+    protected override void OnDrawItem(DrawItemEventArgs e)
+    {
+        base.OnDrawItem(e);
+        if (e.Index < 0 || e.Index >= Items.Count || !e.State.HasFlag(DrawItemState.Selected)) return;
+        // Keep the native checkbox and accessibility behavior, while giving the
+        // selected label consistent contrast after a live appearance change.
+        int glyph = Application.RenderWithVisualStyles ? CheckBoxRenderer.GetGlyphSize(e.Graphics, System.Windows.Forms.VisualStyles.CheckBoxState.UncheckedNormal).Width : (int)(13 * DeviceDpi / 96f);
+        var text = e.Bounds; text.X += glyph + 2; text.Width -= glyph + 2;
+        if (RightToLeft == RightToLeft.Yes) text.X = e.Bounds.X;
+        var background = UiTheme.Selection;
+        var foreground = SystemInformation.HighContrast ? SystemColors.HighlightText : UiTheme.Text;
+        using var fill = new SolidBrush(background); e.Graphics.FillRectangle(fill, text);
+        var flags = TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter;
+        if (RightToLeft == RightToLeft.Yes) flags |= TextFormatFlags.RightToLeft | TextFormatFlags.Right;
+        TextRenderer.DrawText(e.Graphics, GetItemText(Items[e.Index]), Font, text, foreground, flags);
+        if (e.State.HasFlag(DrawItemState.Focus) && !e.State.HasFlag(DrawItemState.NoFocusRect)) ControlPaint.DrawFocusRectangle(e.Graphics, text, foreground, background);
     }
 }
 
@@ -105,9 +127,9 @@ internal sealed class MonitorSelector : RadioButton
         using var border = new Pen(Checked ? UiTheme.Accent : UiTheme.Border);
         e.Graphics.FillPath(fill, path); e.Graphics.DrawPath(border, path);
         var textColor = Checked && SystemInformation.HighContrast ? SystemColors.HighlightText : UiTheme.Text;
-        TextRenderer.DrawText(e.Graphics, DisplayName, Font, new Rectangle(12, 9, Width - 24, 24), textColor, TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter);
+        TextRenderer.DrawText(e.Graphics, DisplayName, Font, new Rectangle(10, 5, Width - 20, 23), textColor, TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter);
         using var detailFont = new Font(Font.FontFamily, 9);
-        TextRenderer.DrawText(e.Graphics, Detail, detailFont, new Rectangle(12, 34, Width - 24, 20), Checked && SystemInformation.HighContrast ? textColor : UiTheme.Muted, TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter);
+        TextRenderer.DrawText(e.Graphics, Detail, detailFont, new Rectangle(10, 28, Width - 20, 18), Checked && SystemInformation.HighContrast ? textColor : UiTheme.Muted, TextFormatFlags.EndEllipsis | TextFormatFlags.VerticalCenter);
         if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -4, -4));
     }
 }

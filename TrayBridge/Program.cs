@@ -6,10 +6,10 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        Application.SetColorMode(SystemColorMode.System);
         Directory.CreateDirectory(NativeHost.DataDirectory);
         try
         {
+            UiTheme.SetAppearance(AppSettings.Load().Appearance);
             if (args.Contains("--self-test")) Checks.Policy();
             else if (args.Contains("--fixture")) { ApplicationConfiguration.Initialize(); Application.Run(new Fixture()); }
             else if (args.Contains("--prepare")) NativeHost.PrepareSymbols(message => File.AppendAllText(Path.Combine(NativeHost.DataDirectory, "prepare.log"), message + Environment.NewLine)).GetAwaiter().GetResult();
