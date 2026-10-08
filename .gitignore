@@ -6,3 +6,4 @@ artifacts/
 **/obj/
 *.user
 .vs/
+.vscode/settings.json
