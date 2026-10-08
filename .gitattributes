@@ -1,0 +1,8 @@
+* text=auto
+*.ps1 text eol=crlf
+*.cpp text eol=crlf
+*.h text eol=crlf
+*.c text eol=crlf
+*.cs text eol=crlf
+Native/Tray.cpp whitespace=-blank-at-eol
+Native/vendor/** whitespace=-blank-at-eol
