@@ -10,14 +10,12 @@ internal sealed class ManagerForm : Form
     private readonly Dictionary<string, TrayRule> drafts = [];
     private string? viewedMonitor;
     private string? editorScope;
-    private const string GlobalScope = "global";
     private readonly Button applyButton;
-    private readonly Button inheritButton;
+    private readonly Button setGlobalButton, revertGlobalButton, resetWindowsButton, enableButton, disableButton;
     private readonly CheckedListBox icons = new() { Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false, AccessibleName = "Application icons" };
     private readonly CheckedListBox systemIcons = new() { Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false, AccessibleName = "Windows system icons" };
-    private readonly CheckBox allSystem = new() { Text = "All system icons (including newly appearing indicators)", Dock = DockStyle.Top, Height = 35, Checked = true };
-    private readonly CheckBox global = new() { Text = "Edit global defaults", AutoSize = true };
-    private readonly CheckBox enabled = new() { Text = "Show a tray on selected monitors", AutoSize = true, Checked = true };
+    private readonly CheckBox allSystem = new() { Text = "All system icons (including new indicators)", AutoSize = true, Checked = true };
+    private readonly CheckBox enabled = new() { Text = "Show tray on marked monitors", AutoSize = true, Checked = true };
     private readonly CheckBox all = new() { Text = "All applications (including new icons)", AutoSize = true, Checked = true };
     private readonly CheckBox quick = new() { Text = "Network, volume and battery / Quick Settings", AutoSize = true, Checked = true };
     private readonly CheckBox clock = new() { Text = "Clock, calendar and notifications", AutoSize = true, Checked = true };
@@ -25,6 +23,9 @@ internal sealed class ManagerForm : Form
     private readonly CheckBox startup = new() { Text = "Start at sign-in", AutoSize = true };
     private readonly Label status = new() { Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
     private readonly Label target = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
+    private readonly Label editorTitle = new() { Dock = DockStyle.Fill };
+    private readonly Label notice = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true };
+    private readonly ToolTip tips = new();
     private bool loading;
     private bool updatingIcons;
     private readonly Dictionary<string, IconChoice> catalog = new();
@@ -32,51 +33,98 @@ internal sealed class ManagerForm : Form
     private string topology = "";
     internal ManagerForm(TrayApplication application)
     {
-        app = application; Text = "TrayBridge"; MinimumSize = new(800, 560); Size = new(960, 680);
-        StartPosition = FormStartPosition.CenterScreen; Font = new("Segoe UI", 10);
-        BackColor = Color.FromArgb(24, 28, 36); ForeColor = Color.FromArgb(231, 235, 241);
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(24), ColumnCount = 2, RowCount = 5 };
-        layout.ColumnStyles.Add(new(SizeType.Absolute, 285)); layout.ColumnStyles.Add(new(SizeType.Percent, 100));
-        layout.RowStyles.Add(new(SizeType.Absolute, 68)); layout.RowStyles.Add(new(SizeType.Absolute, 48)); layout.RowStyles.Add(new(SizeType.Percent, 100)); layout.RowStyles.Add(new(SizeType.Absolute, 66)); layout.RowStyles.Add(new(SizeType.Absolute, 52));
-        var title = new Label { Text = "Your trays, across your displays", Font = new("Segoe UI Semibold", 20), Dock = DockStyle.Fill };
-        layout.Controls.Add(title, 0, 0); layout.SetColumnSpan(title, 2);
-        layout.Controls.Add(new Label { Text = "CONNECTED MONITORS", AutoSize = true }, 0, 1);
-        layout.Controls.Add(target, 1, 1);
-        var left = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, ColumnCount = 1, Padding = new(0, 0, 20, 0) };
-        left.RowStyles.Add(new(SizeType.Absolute, 34)); left.RowStyles.Add(new(SizeType.Percent, 100)); left.RowStyles.Add(new(SizeType.Absolute, 44)); left.RowStyles.Add(new(SizeType.Absolute, 44));
-        left.Controls.Add(selectAll, 0, 0); left.Controls.Add(monitors, 0, 1); left.Controls.Add(global, 0, 2); left.Controls.Add(startup, 0, 3);
-        monitors.ColumnStyles.Add(new(SizeType.Absolute, 28)); monitors.ColumnStyles.Add(new(SizeType.Percent, 100));
-        layout.Controls.Add(left, 0, 2);
-        var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7 };
-        foreach (var control in new Control[] { enabled, all, quick, clock, indicators }) { right.RowStyles.Add(new(SizeType.Absolute, 32)); right.Controls.Add(control, 0, right.Controls.Count); }
-        right.RowStyles.Add(new(SizeType.Absolute, 30)); right.Controls.Add(new Label { Text = "Uncheck an icon to customize; then Apply settings.", AutoSize = true }, 0, 5);
-        var tabs = new TabControl { Dock = DockStyle.Fill };
-        var appsPage = new TabPage("Applications"); appsPage.Controls.Add(icons);
-        var systemPage = new TabPage("Windows controls & indicators"); systemPage.Controls.Add(systemIcons); systemPage.Controls.Add(allSystem);
-        tabs.TabPages.Add(appsPage); tabs.TabPages.Add(systemPage);
-        right.RowStyles.Add(new(SizeType.Percent, 100)); right.Controls.Add(tabs, 0, 6); layout.Controls.Add(right, 1, 2);
-        var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, Padding = new(0, 14, 0, 0) };
-        applyButton = Button("Apply settings", (_, _) => Apply());
-        inheritButton = Button("Use global defaults", (_, _) => UseDefaults());
-        buttons.Controls.Add(applyButton); buttons.Controls.Add(inheritButton);
-        buttons.Controls.Add(Button("Enable", async (_, _) => await app.Enable()));
-        buttons.Controls.Add(Button("Disable", async (_, _) => await app.Disable()));
-        layout.Controls.Add(buttons, 0, 3); layout.SetColumnSpan(buttons, 2);
-        layout.Controls.Add(status, 0, 4); layout.SetColumnSpan(status, 2); Controls.Add(layout);
-        foreach (var list in new[] { icons, systemIcons }) { list.BackColor = Color.FromArgb(34, 39, 49); list.ForeColor = ForeColor; list.BorderStyle = BorderStyle.None; }
-        allSystem.BackColor = BackColor; allSystem.ForeColor = ForeColor;
+        app = application; Text = "TrayBridge"; MinimumSize = new(960, 740); Size = new(1100, 860);
+        StartPosition = FormStartPosition.CenterScreen; Font = new("Segoe UI Variable Text", 10);
+        BackColor = UiTheme.Background; ForeColor = UiTheme.Text;
+        var layout = Rows(BackColor, 86, -1, 84, 94); layout.Padding = new(28, 20, 28, 24);
+        var header = Rows(BackColor, 43, 30);
+        header.Controls.Add(Label("TrayBridge", 25, true), 0, 0);
+        header.Controls.Add(Label("Make each taskbar yours. Choose where your icons belong.", 10, muted: true), 0, 1);
+        layout.Controls.Add(header, 0, 0);
+
+        var content = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = new(0), BackColor = BackColor };
+        content.ColumnStyles.Add(new(SizeType.Absolute, 280)); content.ColumnStyles.Add(new(SizeType.Absolute, 20)); content.ColumnStyles.Add(new(SizeType.Percent, 100));
+        content.RowStyles.Add(new(SizeType.Percent, 100));
+        var displayCard = new SettingsCard { Dock = DockStyle.Fill, Margin = new(0) };
+        var left = Rows(UiTheme.Surface, 32, 44, 38, -1);
+        left.Controls.Add(Label("Displays", 15, true), 0, 0);
+        left.Controls.Add(Label("Click a name to view settings.\nCheck boxes to mark apply targets.", 9, muted: true), 0, 1);
+        left.Controls.Add(selectAll, 0, 2); left.Controls.Add(monitors, 0, 3);
+        monitors.ColumnStyles.Add(new(SizeType.Absolute, 30)); monitors.ColumnStyles.Add(new(SizeType.Percent, 100));
+        monitors.BackColor = UiTheme.Surface; displayCard.Controls.Add(left); content.Controls.Add(displayCard, 0, 0);
+
+        var editorCard = new SettingsCard { Dock = DockStyle.Fill, Margin = new(0) };
+        var editor = Rows(UiTheme.Surface, 32, 32, 40, 38, -1);
+        editorTitle.Font = new(Font.FontFamily, 15, FontStyle.Bold);
+        target.ForeColor = UiTheme.Muted; target.Font = new(Font.FontFamily, 9);
+        editor.Controls.Add(editorTitle, 0, 0); editor.Controls.Add(target, 0, 1); editor.Controls.Add(enabled, 0, 2);
+
+        var pages = new Panel { Dock = DockStyle.Fill, Margin = new(0), BackColor = UiTheme.Surface };
+        var appsPage = Rows(UiTheme.Surface, 36, -1); appsPage.Controls.Add(all, 0, 0); appsPage.Controls.Add(icons, 0, 1);
+        var systemPage = Rows(UiTheme.Surface, 32, 32, 32, 36, -1); systemPage.Visible = false;
+        systemPage.Controls.Add(quick, 0, 0); systemPage.Controls.Add(clock, 0, 1); systemPage.Controls.Add(indicators, 0, 2); systemPage.Controls.Add(allSystem, 0, 3); systemPage.Controls.Add(systemIcons, 0, 4);
+        pages.Controls.Add(appsPage); pages.Controls.Add(systemPage);
+        var tabs = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new(0), BackColor = UiTheme.Surface };
+        var appsTab = Button("Applications", (_, _) => { appsPage.Visible = true; systemPage.Visible = false; appsPage.BringToFront(); });
+        var systemTab = Button("Windows controls & indicators", (_, _) => { appsPage.Visible = false; systemPage.Visible = true; systemPage.BringToFront(); }, width: 242);
+        ((ModernButton)appsTab).Selected = true;
+        appsTab.Click += (_, _) => { ((ModernButton)appsTab).Selected = true; ((ModernButton)systemTab).Selected = false; appsTab.Invalidate(); systemTab.Invalidate(); };
+        systemTab.Click += (_, _) => { ((ModernButton)appsTab).Selected = false; ((ModernButton)systemTab).Selected = true; appsTab.Invalidate(); systemTab.Invalidate(); };
+        tabs.Controls.Add(appsTab); tabs.Controls.Add(systemTab); editor.Controls.Add(tabs, 0, 3); editor.Controls.Add(pages, 0, 4);
+        editorCard.Controls.Add(editor); content.Controls.Add(editorCard, 2, 0); layout.Controls.Add(content, 0, 1);
+
+        var actions = Rows(BackColor, 36, 38); actions.Padding = new(0, 8, 0, 0);
+        notice.ForeColor = UiTheme.Muted; notice.Font = new(Font.FontFamily, 9);
+        notice.Text = "Apply changes to marked displays, or save your complete setup as a global config.";
+        actions.Controls.Add(notice, 0, 0);
+        var actionRow = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new(0), BackColor = BackColor };
+        actionRow.ColumnStyles.Add(new(SizeType.Percent, 100)); actionRow.ColumnStyles.Add(new(SizeType.Absolute, 108));
+        actionRow.RowStyles.Add(new(SizeType.Percent, 100));
+        var configButtons = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = new(0), BackColor = BackColor };
+        setGlobalButton = Button("Set global config", (_, _) => { app.Settings.CaptureGlobalConfiguration(); app.Save(); notice.Text = "Global config saved from the applied setup. Pending edits are kept."; });
+        revertGlobalButton = Button("Revert to global config", async (_, _) => { if (await app.RevertGlobalConfiguration()) { drafts.Clear(); LoadRule(); notice.Text = "Saved global config restored across all displays."; } else notice.Text = app.Status; }, width: 180);
+        resetWindowsButton = Button("Reset to Windows", async (_, _) => { if (await app.ResetWindows()) { drafts.Clear(); LoadRule(); notice.Text = "Windows taskbars restored. Your saved global config is kept."; } else notice.Text = app.Status; }, width: 160);
+        configButtons.Controls.Add(setGlobalButton); configButtons.Controls.Add(revertGlobalButton); configButtons.Controls.Add(resetWindowsButton);
+        applyButton = Button("Apply", (_, _) => Apply(), primary: true, width: 108); applyButton.Dock = DockStyle.Fill; applyButton.Margin = new(0);
+        actionRow.Controls.Add(configButtons, 0, 0); actionRow.Controls.Add(applyButton, 1, 0); actions.Controls.Add(actionRow, 0, 1); layout.Controls.Add(actions, 0, 2);
+        tips.SetToolTip(setGlobalButton, "Save the applied setup across all displays. Apply pending edits first to include them.");
+        tips.SetToolTip(revertGlobalButton, "Restore the saved setup across all displays, including its enabled or disabled state.");
+        tips.SetToolTip(resetWindowsButton, "Restore native Windows taskbars and clear current assignments. Keep your saved global config and sign-in preference.");
+
+        var serviceCard = new SettingsCard { Dock = DockStyle.Fill, Margin = new(0, 14, 0, 0), Padding = new(18, 12, 18, 12) };
+        var service = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = new(0), BackColor = UiTheme.Surface };
+        service.ColumnStyles.Add(new(SizeType.Percent, 100)); service.ColumnStyles.Add(new(SizeType.Absolute, 348));
+        service.RowStyles.Add(new(SizeType.Percent, 100));
+        var serviceState = Rows(UiTheme.Surface, 25, -1); serviceState.Controls.Add(Label("Tray service", 11, true), 0, 0);
+        status.Font = new(Font.FontFamily, 9); status.ForeColor = UiTheme.Muted; serviceState.Controls.Add(status, 0, 1);
+        var serviceButtons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.RightToLeft, WrapContents = false, Margin = new(0), Padding = new(0, 6, 0, 0), BackColor = UiTheme.Surface };
+        disableButton = Button("Disable", async (_, _) => await app.Disable(), width: 88);
+        enableButton = Button("Enable", async (_, _) => await app.Enable(), width: 88);
+        startup.Margin = new(4, 9, 14, 0); serviceButtons.Controls.Add(disableButton); serviceButtons.Controls.Add(enableButton); serviceButtons.Controls.Add(startup);
+        service.Controls.Add(serviceState, 0, 0); service.Controls.Add(serviceButtons, 1, 0); serviceCard.Controls.Add(service); layout.Controls.Add(serviceCard, 0, 3);
+        Controls.Add(layout); AcceptButton = applyButton;
+        foreach (var list in new[] { icons, systemIcons }) { list.BackColor = UiTheme.Surface; list.ForeColor = ForeColor; list.BorderStyle = BorderStyle.None; list.Font = new(Font.FontFamily, 11); }
+        foreach (var control in new[] { selectAll, enabled, all, quick, clock, indicators, allSystem, startup }) { control.BackColor = UiTheme.Surface; control.ForeColor = ForeColor; }
         ConnectSelection(icons, all);
         ConnectSelection(systemIcons, allSystem);
         selectAll.Click += (_, _) => MarkAll(selectAll.CheckState != CheckState.Checked);
         selectAll.CheckStateChanged += (_, _) => { if (!loading) MarkAll(selectAll.CheckState == CheckState.Checked); };
-        global.CheckedChanged += (_, _) => { SaveDraft(); monitors.Enabled = selectAll.Enabled = !global.Checked; LoadRule(); };
         startup.Checked = app.Settings.StartWithWindows;
         startup.CheckedChanged += (_, _) => { app.Settings.StartWithWindows = startup.Checked; app.Save(); };
         FormClosing += (_, e) => { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };
-        app.Updated += RefreshState; Disposed += (_, _) => app.Updated -= RefreshState;
+        app.Updated += RefreshState; Disposed += (_, _) => { app.Updated -= RefreshState; tips.Dispose(); };
         RefreshState(); LoadRule();
     }
-    private static Button Button(string text, EventHandler click) { var button = new Button { Text = text, AutoSize = true, Height = 34, Padding = new(10, 3, 10, 3), ForeColor = Color.Black, BackColor = Color.WhiteSmoke, FlatStyle = FlatStyle.Flat }; button.Click += click; return button; }
+    protected override void OnHandleCreated(EventArgs e) { base.OnHandleCreated(e); UiTheme.WindowStyle(Handle); }
+    private static TableLayoutPanel Rows(Color color, params int[] heights)
+    {
+        var result = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = heights.Length, Margin = new(0), BackColor = color };
+        result.ColumnStyles.Add(new(SizeType.Percent, 100));
+        foreach (var height in heights) result.RowStyles.Add(height < 0 ? new(SizeType.Percent, 100) : new(SizeType.Absolute, height));
+        return result;
+    }
+    private Label Label(string text, float size, bool bold = false, bool muted = false) => new() { Text = text, Dock = DockStyle.Fill, Margin = new(0), TextAlign = ContentAlignment.MiddleLeft, Font = new(Font.FontFamily, size, bold ? FontStyle.Bold : FontStyle.Regular), ForeColor = muted ? UiTheme.Muted : UiTheme.Text };
+    private static Button Button(string text, EventHandler click, bool primary = false, int width = 150) { var button = new ModernButton { Text = text.Replace("&", "&&"), AccessibleName = text, Primary = primary, Width = width }; button.Click += click; return button; }
     private void SaveDraft() { if (editorScope is not null) drafts[editorScope] = ReadRule(); }
     private void ViewMonitor(string id)
     {
@@ -92,9 +140,14 @@ internal sealed class ManagerForm : Form
         try { selectAll.CheckState = count == 0 ? CheckState.Unchecked : count == monitorRows.Count ? CheckState.Checked : CheckState.Indeterminate; }
         finally { loading = previous; }
         var display = monitorRows.FirstOrDefault(row => row.Display.Id == viewedMonitor)?.Display;
-        target.Text = global.Checked ? "Viewing global defaults" : $"Viewing {display?.Device.Replace(@"\\.\", "") ?? "no monitor"}\nApply to {count} marked monitor{(count == 1 ? "" : "s")}";
-        applyButton.Enabled = global.Checked || count > 0;
-        inheritButton.Enabled = !global.Checked && count > 0;
+        editorTitle.Text = display?.Name ?? "Tray settings";
+        target.Text = $"{display?.Device.Replace(@"\\.\", "") ?? "No monitor"}  ·  Changes apply to {count} marked display{(count == 1 ? "" : "s")}";
+        applyButton.Enabled = count > 0;
+        setGlobalButton.Enabled = !app.Busy;
+        revertGlobalButton.Enabled = app.Settings.GlobalConfiguration is not null && !app.Busy;
+        resetWindowsButton.Enabled = !app.Busy;
+        enableButton.Enabled = !app.Settings.Active && !app.Busy;
+        disableButton.Enabled = app.Settings.Active && !app.Busy;
     }
     private void MarkAll(bool check)
     {
@@ -118,9 +171,9 @@ internal sealed class ManagerForm : Form
             {
                 var label = $"{display.Device.Replace(@"\\.\", "")} · {display.Name}{(display.Primary ? " (primary)" : "")}";
                 var mark = new CheckBox { Dock = DockStyle.Fill, Margin = new(0), AccessibleName = "Apply to " + label, Checked = initial ? display.Primary : marked.Contains(display.Id) };
-                var view = new RadioButton { Text = label, AccessibleName = "View " + label, Dock = DockStyle.Fill, Appearance = Appearance.Button, AutoCheck = false, Checked = display.Id == viewedMonitor, FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleLeft, Padding = new(5), BackColor = Color.FromArgb(34, 39, 49), ForeColor = ForeColor };
-                view.FlatAppearance.CheckedBackColor = Color.FromArgb(35, 88, 100);
-                int index = monitors.RowCount++; monitors.RowStyles.Add(new(SizeType.Absolute, 64));
+                mark.BackColor = UiTheme.Surface;
+                var view = new MonitorSelector { Text = label, AccessibleName = "View " + label, DisplayName = display.Name, Detail = display.Device.Replace(@"\\.\", "") + (display.Primary ? " · Primary" : " · Secondary"), Checked = display.Id == viewedMonitor, BackColor = UiTheme.Surface, ForeColor = ForeColor };
+                int index = monitors.RowCount++; monitors.RowStyles.Add(new(SizeType.Absolute, 74));
                 monitors.Controls.Add(mark, 0, index); monitors.Controls.Add(view, 1, index);
                 monitorRows.Add(new(display, mark, view));
                 mark.CheckedChanged += (_, _) => { if (!loading) UpdateTargets(); };
@@ -158,6 +211,7 @@ internal sealed class ManagerForm : Form
         if (IsDisposed) return;
         var seenApps = new HashSet<string>(); var seenSystems = new HashSet<string>();
         status.Text = app.Status;
+        UpdateTargets();
         var signature = string.Join("|", app.Monitors.Select(d => d.Id + d.Device));
         if (signature != topology) RefreshMonitors(signature);
         try
@@ -225,16 +279,16 @@ internal sealed class ManagerForm : Form
     }
     private TrayRule CurrentRule()
     {
-        var scope = global.Checked ? GlobalScope : viewedMonitor;
+        var scope = viewedMonitor;
         if (scope is not null && drafts.TryGetValue(scope, out var draft)) return draft;
         var display = app.Monitors.FirstOrDefault(display => display.Id == viewedMonitor);
-        return global.Checked || display is null ? app.Settings.Defaults : app.Settings.For(display);
+        return display is null ? app.Settings.Defaults : app.Settings.For(display);
     }
     private void LoadRule()
     {
         UpdateIcons(() =>
         {
-            editorScope = global.Checked ? GlobalScope : viewedMonitor;
+            editorScope = viewedMonitor;
             var rule = CurrentRule(); enabled.Checked = rule.Enabled; all.Checked = rule.AllApplications; quick.Checked = rule.QuickSettings; clock.Checked = rule.Clock; indicators.Checked = rule.SystemIndicators; allSystem.Checked = rule.AllSystemIcons;
             for (int i = 0; i < icons.Items.Count; i++) icons.SetItemChecked(i, rule.AllApplications || rule.Icons.Contains(((IconChoice)icons.Items[i]).Id));
             for (int i = 0; i < systemIcons.Items.Count; i++) systemIcons.SetItemChecked(i, rule.AllSystemIcons || rule.SystemIcons.Contains(((IconChoice)systemIcons.Items[i]).Id));
@@ -245,26 +299,12 @@ internal sealed class ManagerForm : Form
     private void Apply()
     {
         var targets = monitorRows.Where(row => row.Mark.Checked).Select(row => row.Display).ToArray();
-        if (!global.Checked && targets.Length == 0) return;
+        if (targets.Length == 0) return;
         SaveDraft(); var rule = ReadRule();
-        if (global.Checked)
-        {
-            app.Settings.Defaults = rule;
-            drafts.Remove(GlobalScope);
-            foreach (var display in app.Monitors.Where(display => !app.Settings.Overrides.ContainsKey(display.Id))) drafts.Remove(display.Id);
-        }
-        else
-        {
-            app.Settings.ApplyTo(targets, rule);
-            foreach (var display in targets) drafts.Remove(display.Id);
-        }
+        app.Settings.ApplyTo(targets, rule);
+        foreach (var display in targets) drafts.Remove(display.Id);
         app.Save(); LoadRule();
-    }
-    private void UseDefaults()
-    {
-        SaveDraft();
-        foreach (var row in monitorRows.Where(row => row.Mark.Checked)) { app.Settings.Overrides.Remove(row.Display.Id); drafts.Remove(row.Display.Id); }
-        app.Save(); LoadRule();
+        notice.Text = $"Applied to {targets.Length} marked display{(targets.Length == 1 ? "" : "s")}.";
     }
     private sealed record MonitorRow(DisplayInfo Display, CheckBox Mark, RadioButton View);
     private sealed record IconChoice(string Id, string Label) { public override string ToString() => Label; }

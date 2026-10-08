@@ -22,6 +22,15 @@ internal sealed class AppSettings
     public TrayRule Defaults { get; set; } = new();
     public Dictionary<string, TrayRule> Overrides { get; set; } = [];
     public Dictionary<string, string> IconLabels { get; set; } = [];
+    public GlobalTrayConfiguration? GlobalConfiguration { get; set; }
+    public void CaptureGlobalConfiguration() => GlobalConfiguration = new() { Active = Active, Defaults = Defaults.Copy(), Overrides = Overrides.ToDictionary(pair => pair.Key, pair => pair.Value.Copy()) };
+    public void RestoreGlobalConfiguration()
+    {
+        if (GlobalConfiguration is not { } configuration) return;
+        Defaults = configuration.Defaults.Copy();
+        Overrides = configuration.Overrides.ToDictionary(pair => pair.Key, pair => pair.Value.Copy());
+    }
+    public void ResetToWindows() { Active = false; Defaults = new(); Overrides.Clear(); }
     public TrayRule For(DisplayInfo display) => Overrides.TryGetValue(display.Id, out var value) ? value : Defaults;
     public void ApplyTo(IEnumerable<DisplayInfo> displays, TrayRule rule) { foreach (var display in displays) Overrides[display.Id] = rule.Copy(); }
     public object Resolve(IReadOnlyList<DisplayInfo> connected)
@@ -99,4 +108,10 @@ internal sealed class AppSettings
         File.Move(path + ".tmp", path, true);
     }
     internal static void WriteNative(object value) => AtomicWrite("native-settings.json", value);
+}
+internal sealed class GlobalTrayConfiguration
+{
+    public bool Active { get; set; }
+    public TrayRule Defaults { get; set; } = new();
+    public Dictionary<string, TrayRule> Overrides { get; set; } = [];
 }

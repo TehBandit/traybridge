@@ -9,6 +9,7 @@ internal sealed class TrayApplication : ApplicationContext
     internal IReadOnlyList<DisplayInfo> Monitors { get; private set; } = Displays.Read();
     internal event Action? Updated;
     internal string Status { get; private set; } = "Disabled — Windows' original taskbars are active.";
+    internal bool Busy => busy;
     private readonly NotifyIcon tray;
     private readonly System.Windows.Forms.Timer timer = new() { Interval = 2000 };
     private readonly EventWaitHandle showRequest = new(false, EventResetMode.AutoReset, @"Local\TrayBridge.Show");
@@ -55,12 +56,19 @@ internal sealed class TrayApplication : ApplicationContext
     }
     internal async Task Disable(bool savePreference = true)
     {
+        if (busy) return;
+        busy = true;
         if (savePreference) Settings.Active = false;
         if (savePreference) Settings.Save(Monitors);
-        try { if (attached) await Task.Run(NativeHost.Stop); }
-        catch (Exception error) { Status = error.Message; Updated?.Invoke(); return; }
-        attached = false;
-        Status = "Disabled — Windows' original taskbars are active."; Updated?.Invoke();
+        Status = "Restoring Windows taskbars…"; Updated?.Invoke();
+        try
+        {
+            if (attached) await Task.Run(NativeHost.Stop);
+            attached = false;
+            Status = "Disabled — Windows' original taskbars are active.";
+        }
+        catch (Exception error) { Status = error.Message; }
+        finally { busy = false; Updated?.Invoke(); }
     }
     internal void Save()
     {
@@ -69,6 +77,21 @@ internal sealed class TrayApplication : ApplicationContext
         if (Settings.StartWithWindows) key?.SetValue("TrayBridge", $"\"{Environment.ProcessPath}\" --hidden");
         else key?.DeleteValue("TrayBridge", false);
         Updated?.Invoke();
+    }
+    internal async Task<bool> RevertGlobalConfiguration()
+    {
+        if (busy || Settings.GlobalConfiguration is not { } configuration) return false;
+        Settings.RestoreGlobalConfiguration(); Save();
+        if (configuration.Active) await Enable(); else await Disable();
+        return Settings.Active == configuration.Active && attached == configuration.Active;
+    }
+    internal async Task<bool> ResetWindows()
+    {
+        if (busy) return false;
+        await Disable();
+        if (attached) return false;
+        Settings.ResetToWindows(); Save();
+        return true;
     }
     private void Persist()
     {

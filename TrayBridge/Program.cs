@@ -6,6 +6,7 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        Application.SetColorMode(SystemColorMode.System);
         Directory.CreateDirectory(NativeHost.DataDirectory);
         try
         {

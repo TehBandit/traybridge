@@ -20,6 +20,19 @@ internal static class Checks
         var legacy = new AppSettings { Version = 1, Defaults = new() { AllApplications = false, Icons = ["chosen"] } };
         legacy.UpgradeExclusions(["chosen", "unchecked"]);
         if (legacy.Version != 2 || !legacy.Defaults.ExcludedIcons.SetEquals(["unchecked"])) throw new Exception("Existing selections were not upgraded to explicit exclusions.");
+        var configuration = new AppSettings { Active = true, StartWithWindows = true, Defaults = new() { Clock = false } };
+        configuration.ApplyTo([primary], new TrayRule { AllApplications = false, Icons = ["primary"] });
+        configuration.ApplyTo([secondary], new TrayRule { AllApplications = false, Icons = ["secondary"] });
+        configuration.CaptureGlobalConfiguration();
+        configuration.For(primary).Icons.Add("later");
+        configuration.ResetToWindows();
+        if (configuration.Active || configuration.Overrides.Count != 0 || !configuration.Defaults.AllApplications || configuration.GlobalConfiguration is null || !configuration.StartWithWindows) throw new Exception("Windows reset did not preserve the global config and startup preference.");
+        configuration.RestoreGlobalConfiguration();
+        if (!configuration.For(primary).Icons.SetEquals(["primary"]) || !configuration.For(secondary).Icons.SetEquals(["secondary"]) || configuration.Defaults.Clock) throw new Exception("Complete global configuration did not restore independent monitor rules.");
+        configuration.For(secondary).Icons.Add("another change");
+        if (configuration.GlobalConfiguration.Overrides[secondary.Id].Icons.Contains("another change")) throw new Exception("Restoring global configuration shares mutable state with the saved snapshot.");
+        var persisted = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(configuration))!;
+        if (persisted.GlobalConfiguration is null || !persisted.GlobalConfiguration.Active || !persisted.GlobalConfiguration.Overrides[secondary.Id].Icons.SetEquals(["secondary"])) throw new Exception("Global configuration did not survive settings serialization.");
         using var independent = JsonDocument.Parse(JsonSerializer.Serialize(settings.Resolve([primary, secondary])));
         var resolvedPrimary = independent.RootElement.GetProperty("monitors")[0];
         if (!resolvedPrimary.GetProperty("excludedIcons").EnumerateArray().Any(v => v.GetString() == "hidden")) throw new Exception("Explicit exclusions were not passed to the native tray.");
@@ -39,7 +52,7 @@ internal static class Checks
         if (disabled.RootElement.GetProperty("monitors")[0].GetProperty("icons").EnumerateArray().Any(v => v.GetString() == "secondary-only")) throw new Exception("Disabled rules unexpectedly create fallback assignments.");
         settings.Overrides.Remove(secondary.Id);
         if (!ReferenceEquals(settings.For(secondary), settings.Defaults)) throw new Exception("Reset to global defaults failed.");
-        File.WriteAllText(Path.Combine(NativeHost.DataDirectory, "policy-report.json"), JsonSerializer.Serialize(new { Passed = true, Checks = new[] { "global inheritance", "independent bulk rules and exclusions", "single-monitor updates preserve other monitors", "native exclusion settings", "legacy selection upgrade", "disconnect recovery", "reconnect routing", "disabled assignments", "reset overrides" } }));
+        File.WriteAllText(Path.Combine(NativeHost.DataDirectory, "policy-report.json"), JsonSerializer.Serialize(new { Passed = true, Checks = new[] { "global inheritance", "independent bulk rules and exclusions", "single-monitor updates preserve other monitors", "native exclusion settings", "legacy selection upgrade", "complete global snapshot", "Windows reset preserves snapshot and startup preference", "independent global restoration", "global snapshot persistence", "disconnect recovery", "reconnect routing", "disabled assignments", "reset overrides" } }));
     }
     internal static void Live(bool route)
     {
