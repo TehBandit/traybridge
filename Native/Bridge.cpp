@@ -143,6 +143,11 @@ static bool Included(JsonObject const& rule, std::wstring const& identity) {
     for (auto const& value : rule.GetNamedArray(L"icons", JsonArray{})) if (value.GetString() == identity) return true;
     return false;
 }
+static bool ExplicitlyExcluded(JsonObject const& rule, std::wstring const& identity) {
+    if (rule.GetNamedBoolean(L"allApps", true)) return false;
+    for (auto const& value : rule.GetNamedArray(L"excludedIcons", JsonArray{})) if (value.GetString() == identity) return true;
+    return false;
+}
 static bool AssignedElsewhere(std::wstring const& identity) {
     for (auto const& value : bridgeSettings.GetNamedArray(L"monitors", JsonArray{})) {
         auto rule = value.GetObject();
@@ -172,7 +177,7 @@ static void FilterTree(DependencyObject const& parent, JsonObject const& rule, b
             filter = true;
             visible = management ? primary : (enabled && Included(rule, id));
             // New/unassigned icons remain recoverable on primary.
-            if (!management && primary && !AssignedElsewhere(id)) visible = true;
+            if (!management && primary && !AssignedElsewhere(id) && !ExplicitlyExcluded(rule, id)) visible = true;
             // Collapse the item container as well, avoiding empty icon slots.
             auto item = Media::VisualTreeHelper::GetParent(element).try_as<FrameworkElement>();
             while (item && winrt::get_class_name(item) != L"Windows.UI.Xaml.Controls.ContentPresenter" && !item.try_as<Controls::ListViewItem>()) item = Media::VisualTreeHelper::GetParent(item).try_as<FrameworkElement>();

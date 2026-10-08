@@ -56,7 +56,7 @@ static void RefreshOverflow() {
         for (auto const& value : settings.GetNamedArray(L"monitors", JsonArray{})) {
             auto other = value.GetObject(); if (other.GetNamedBoolean(L"enabled", true) && Included(other, id)) assigned = true;
         }
-        if (overflowState.primary && !assigned) include = true;
+        if (overflowState.primary && !assigned && !ExplicitlyExcluded(rule, id)) include = true;
         if (text.find(L"TrayBridge") == 0) include = overflowState.primary;
         if (include) selected.push_back(model);
     }

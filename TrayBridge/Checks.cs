@@ -9,9 +9,21 @@ internal static class Checks
         var secondary = new DisplayInfo("physical-B", @"\\.\DISPLAY2", "Secondary", false, new(1920, 0, 1920, 1080));
         var settings = new AppSettings { Defaults = new() { AllApplications = false, Icons = ["common"] } };
         if (!ReferenceEquals(settings.For(secondary), settings.Defaults)) throw new Exception("Global inheritance failed.");
-        settings.ApplyTo([primary, secondary], new TrayRule { AllApplications = false, Icons = ["one"], SystemIcons = ["volume"] });
+        settings.ApplyTo([primary, secondary], new TrayRule { AllApplications = false, Icons = ["one"], ExcludedIcons = ["hidden"], SystemIcons = ["volume"] });
         settings.Overrides[primary.Id].Icons.Add("two");
+        settings.Overrides[primary.Id].ExcludedIcons.Add("primary-hidden");
         if (settings.Overrides[secondary.Id].Icons.Contains("two")) throw new Exception("Bulk configuration shares mutable rules.");
+        if (settings.Overrides[secondary.Id].ExcludedIcons.Contains("primary-hidden")) throw new Exception("Bulk exclusion rules share mutable state.");
+        var primaryBefore = JsonSerializer.Serialize(settings.For(primary));
+        settings.ApplyTo([secondary], new TrayRule { AllApplications = false, Icons = ["secondary-only"] });
+        if (JsonSerializer.Serialize(settings.For(primary)) != primaryBefore) throw new Exception("Updating secondary reverted primary settings.");
+        var legacy = new AppSettings { Version = 1, Defaults = new() { AllApplications = false, Icons = ["chosen"] } };
+        legacy.UpgradeExclusions(["chosen", "unchecked"]);
+        if (legacy.Version != 2 || !legacy.Defaults.ExcludedIcons.SetEquals(["unchecked"])) throw new Exception("Existing selections were not upgraded to explicit exclusions.");
+        using var independent = JsonDocument.Parse(JsonSerializer.Serialize(settings.Resolve([primary, secondary])));
+        var resolvedPrimary = independent.RootElement.GetProperty("monitors")[0];
+        if (!resolvedPrimary.GetProperty("excludedIcons").EnumerateArray().Any(v => v.GetString() == "hidden")) throw new Exception("Explicit exclusions were not passed to the native tray.");
+        settings.Overrides[secondary.Id].SystemIcons.Add("volume");
         settings.Overrides[secondary.Id].Icons = ["secondary-only"];
         using var disconnected = JsonDocument.Parse(JsonSerializer.Serialize(settings.Resolve([primary])));
         var fallback = disconnected.RootElement.GetProperty("monitors")[0];
@@ -27,7 +39,7 @@ internal static class Checks
         if (disabled.RootElement.GetProperty("monitors")[0].GetProperty("icons").EnumerateArray().Any(v => v.GetString() == "secondary-only")) throw new Exception("Disabled rules unexpectedly create fallback assignments.");
         settings.Overrides.Remove(secondary.Id);
         if (!ReferenceEquals(settings.For(secondary), settings.Defaults)) throw new Exception("Reset to global defaults failed.");
-        File.WriteAllText(Path.Combine(NativeHost.DataDirectory, "policy-report.json"), JsonSerializer.Serialize(new { Passed = true, Checks = new[] { "global inheritance", "independent bulk rules", "disconnect recovery", "reconnect routing", "disabled assignments", "reset overrides" } }));
+        File.WriteAllText(Path.Combine(NativeHost.DataDirectory, "policy-report.json"), JsonSerializer.Serialize(new { Passed = true, Checks = new[] { "global inheritance", "independent bulk rules and exclusions", "single-monitor updates preserve other monitors", "native exclusion settings", "legacy selection upgrade", "disconnect recovery", "reconnect routing", "disabled assignments", "reset overrides" } }));
     }
     internal static void Live(bool route)
     {

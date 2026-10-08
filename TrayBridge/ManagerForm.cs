@@ -4,7 +4,15 @@ namespace TrayBridge;
 internal sealed class ManagerForm : Form
 {
     private readonly TrayApplication app;
-    private readonly CheckedListBox monitors = new() { Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false };
+    private readonly TableLayoutPanel monitors = new() { Dock = DockStyle.Fill, ColumnCount = 2, AutoScroll = true, AccessibleName = "Connected monitors" };
+    private readonly CheckBox selectAll = new() { Text = "Select/deselect all", AutoSize = true, AutoCheck = false };
+    private readonly List<MonitorRow> monitorRows = [];
+    private readonly Dictionary<string, TrayRule> drafts = [];
+    private string? viewedMonitor;
+    private string? editorScope;
+    private const string GlobalScope = "global";
+    private readonly Button applyButton;
+    private readonly Button inheritButton;
     private readonly CheckedListBox icons = new() { Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false, AccessibleName = "Application icons" };
     private readonly CheckedListBox systemIcons = new() { Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false, AccessibleName = "Windows system icons" };
     private readonly CheckBox allSystem = new() { Text = "All system icons (including newly appearing indicators)", Dock = DockStyle.Top, Height = 35, Checked = true };
@@ -16,7 +24,7 @@ internal sealed class ManagerForm : Form
     private readonly CheckBox indicators = new() { Text = "Language, input and privacy indicators", AutoSize = true, Checked = true };
     private readonly CheckBox startup = new() { Text = "Start at sign-in", AutoSize = true };
     private readonly Label status = new() { Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
-    private readonly Label target = new() { Text = "Select one or more monitors, then apply the same settings to them.", AutoSize = true };
+    private readonly Label target = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
     private bool loading;
     private bool updatingIcons;
     private readonly Dictionary<string, IconChoice> catalog = new();
@@ -29,14 +37,15 @@ internal sealed class ManagerForm : Form
         BackColor = Color.FromArgb(24, 28, 36); ForeColor = Color.FromArgb(231, 235, 241);
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new(24), ColumnCount = 2, RowCount = 5 };
         layout.ColumnStyles.Add(new(SizeType.Absolute, 285)); layout.ColumnStyles.Add(new(SizeType.Percent, 100));
-        layout.RowStyles.Add(new(SizeType.Absolute, 68)); layout.RowStyles.Add(new(SizeType.Absolute, 38)); layout.RowStyles.Add(new(SizeType.Percent, 100)); layout.RowStyles.Add(new(SizeType.Absolute, 66)); layout.RowStyles.Add(new(SizeType.Absolute, 52));
+        layout.RowStyles.Add(new(SizeType.Absolute, 68)); layout.RowStyles.Add(new(SizeType.Absolute, 48)); layout.RowStyles.Add(new(SizeType.Percent, 100)); layout.RowStyles.Add(new(SizeType.Absolute, 66)); layout.RowStyles.Add(new(SizeType.Absolute, 52));
         var title = new Label { Text = "Your trays, across your displays", Font = new("Segoe UI Semibold", 20), Dock = DockStyle.Fill };
         layout.Controls.Add(title, 0, 0); layout.SetColumnSpan(title, 2);
         layout.Controls.Add(new Label { Text = "CONNECTED MONITORS", AutoSize = true }, 0, 1);
         layout.Controls.Add(target, 1, 1);
-        var left = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1, Padding = new(0, 0, 20, 0) };
-        left.RowStyles.Add(new(SizeType.Percent, 100)); left.RowStyles.Add(new(SizeType.Absolute, 44)); left.RowStyles.Add(new(SizeType.Absolute, 44));
-        left.Controls.Add(monitors, 0, 0); left.Controls.Add(global, 0, 1); left.Controls.Add(startup, 0, 2);
+        var left = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, ColumnCount = 1, Padding = new(0, 0, 20, 0) };
+        left.RowStyles.Add(new(SizeType.Absolute, 34)); left.RowStyles.Add(new(SizeType.Percent, 100)); left.RowStyles.Add(new(SizeType.Absolute, 44)); left.RowStyles.Add(new(SizeType.Absolute, 44));
+        left.Controls.Add(selectAll, 0, 0); left.Controls.Add(monitors, 0, 1); left.Controls.Add(global, 0, 2); left.Controls.Add(startup, 0, 3);
+        monitors.ColumnStyles.Add(new(SizeType.Absolute, 28)); monitors.ColumnStyles.Add(new(SizeType.Percent, 100));
         layout.Controls.Add(left, 0, 2);
         var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7 };
         foreach (var control in new Control[] { enabled, all, quick, clock, indicators }) { right.RowStyles.Add(new(SizeType.Absolute, 32)); right.Controls.Add(control, 0, right.Controls.Count); }
@@ -47,19 +56,20 @@ internal sealed class ManagerForm : Form
         tabs.TabPages.Add(appsPage); tabs.TabPages.Add(systemPage);
         right.RowStyles.Add(new(SizeType.Percent, 100)); right.Controls.Add(tabs, 0, 6); layout.Controls.Add(right, 1, 2);
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.LeftToRight, Padding = new(0, 14, 0, 0) };
-        var apply = Button("Apply settings", (_, _) => Apply());
-        var inherit = Button("Use global defaults", (_, _) => { foreach (DisplayChoice choice in monitors.CheckedItems) app.Settings.Overrides.Remove(choice.Display.Id); app.Save(); LoadRule(); });
-        buttons.Controls.Add(apply); buttons.Controls.Add(inherit);
-        buttons.Controls.Add(Button("Enable", async (_, _) => { Apply(); await app.Enable(); }));
+        applyButton = Button("Apply settings", (_, _) => Apply());
+        inheritButton = Button("Use global defaults", (_, _) => UseDefaults());
+        buttons.Controls.Add(applyButton); buttons.Controls.Add(inheritButton);
+        buttons.Controls.Add(Button("Enable", async (_, _) => await app.Enable()));
         buttons.Controls.Add(Button("Disable", async (_, _) => await app.Disable()));
         layout.Controls.Add(buttons, 0, 3); layout.SetColumnSpan(buttons, 2);
         layout.Controls.Add(status, 0, 4); layout.SetColumnSpan(status, 2); Controls.Add(layout);
-        foreach (var list in new[] { monitors, icons, systemIcons }) { list.BackColor = Color.FromArgb(34, 39, 49); list.ForeColor = ForeColor; list.BorderStyle = BorderStyle.None; }
+        foreach (var list in new[] { icons, systemIcons }) { list.BackColor = Color.FromArgb(34, 39, 49); list.ForeColor = ForeColor; list.BorderStyle = BorderStyle.None; }
         allSystem.BackColor = BackColor; allSystem.ForeColor = ForeColor;
         ConnectSelection(icons, all);
         ConnectSelection(systemIcons, allSystem);
-        global.CheckedChanged += (_, _) => { monitors.Enabled = !global.Checked; LoadRule(); };
-        monitors.SelectedIndexChanged += (_, _) => { if (!loading) LoadRule(); };
+        selectAll.Click += (_, _) => MarkAll(selectAll.CheckState != CheckState.Checked);
+        selectAll.CheckStateChanged += (_, _) => { if (!loading) MarkAll(selectAll.CheckState == CheckState.Checked); };
+        global.CheckedChanged += (_, _) => { SaveDraft(); monitors.Enabled = selectAll.Enabled = !global.Checked; LoadRule(); };
         startup.Checked = app.Settings.StartWithWindows;
         startup.CheckedChanged += (_, _) => { app.Settings.StartWithWindows = startup.Checked; app.Save(); };
         FormClosing += (_, e) => { if (e.CloseReason == CloseReason.UserClosing) { e.Cancel = true; Hide(); } };
@@ -67,6 +77,61 @@ internal sealed class ManagerForm : Form
         RefreshState(); LoadRule();
     }
     private static Button Button(string text, EventHandler click) { var button = new Button { Text = text, AutoSize = true, Height = 34, Padding = new(10, 3, 10, 3), ForeColor = Color.Black, BackColor = Color.WhiteSmoke, FlatStyle = FlatStyle.Flat }; button.Click += click; return button; }
+    private void SaveDraft() { if (editorScope is not null) drafts[editorScope] = ReadRule(); }
+    private void ViewMonitor(string id)
+    {
+        if (viewedMonitor == id) return;
+        SaveDraft(); viewedMonitor = id;
+        foreach (var row in monitorRows) row.View.Checked = row.Display.Id == id;
+        LoadRule();
+    }
+    private void UpdateTargets()
+    {
+        int count = monitorRows.Count(row => row.Mark.Checked);
+        bool previous = loading; loading = true;
+        try { selectAll.CheckState = count == 0 ? CheckState.Unchecked : count == monitorRows.Count ? CheckState.Checked : CheckState.Indeterminate; }
+        finally { loading = previous; }
+        var display = monitorRows.FirstOrDefault(row => row.Display.Id == viewedMonitor)?.Display;
+        target.Text = global.Checked ? "Viewing global defaults" : $"Viewing {display?.Device.Replace(@"\\.\", "") ?? "no monitor"}\nApply to {count} marked monitor{(count == 1 ? "" : "s")}";
+        applyButton.Enabled = global.Checked || count > 0;
+        inheritButton.Enabled = !global.Checked && count > 0;
+    }
+    private void MarkAll(bool check)
+    {
+        loading = true;
+        try { foreach (var row in monitorRows) row.Mark.Checked = check; }
+        finally { loading = false; }
+        UpdateTargets();
+    }
+    private void RefreshMonitors(string signature)
+    {
+        SaveDraft();
+        bool initial = topology.Length == 0;
+        var marked = monitorRows.Where(row => row.Mark.Checked).Select(row => row.Display.Id).ToHashSet();
+        loading = true;
+        try
+        {
+            foreach (Control control in monitors.Controls.Cast<Control>().ToArray()) control.Dispose();
+            monitors.Controls.Clear(); monitors.RowStyles.Clear(); monitors.RowCount = 0; monitorRows.Clear();
+            if (!app.Monitors.Any(display => display.Id == viewedMonitor)) viewedMonitor = app.Monitors.FirstOrDefault()?.Id;
+            foreach (var display in app.Monitors)
+            {
+                var label = $"{display.Device.Replace(@"\\.\", "")} · {display.Name}{(display.Primary ? " (primary)" : "")}";
+                var mark = new CheckBox { Dock = DockStyle.Fill, Margin = new(0), AccessibleName = "Apply to " + label, Checked = initial ? display.Primary : marked.Contains(display.Id) };
+                var view = new RadioButton { Text = label, AccessibleName = "View " + label, Dock = DockStyle.Fill, Appearance = Appearance.Button, AutoCheck = false, Checked = display.Id == viewedMonitor, FlatStyle = FlatStyle.Flat, TextAlign = ContentAlignment.MiddleLeft, Padding = new(5), BackColor = Color.FromArgb(34, 39, 49), ForeColor = ForeColor };
+                view.FlatAppearance.CheckedBackColor = Color.FromArgb(35, 88, 100);
+                int index = monitors.RowCount++; monitors.RowStyles.Add(new(SizeType.Absolute, 64));
+                monitors.Controls.Add(mark, 0, index); monitors.Controls.Add(view, 1, index);
+                monitorRows.Add(new(display, mark, view));
+                mark.CheckedChanged += (_, _) => { if (!loading) UpdateTargets(); };
+                view.Click += (_, _) => ViewMonitor(display.Id);
+                view.CheckedChanged += (_, _) => { if (!loading && view.Checked) ViewMonitor(display.Id); };
+            }
+            monitors.RowCount++; monitors.RowStyles.Add(new(SizeType.Percent, 100)); topology = signature;
+        }
+        finally { loading = false; }
+        LoadRule();
+    }
     private void UpdateIcons(Action update)
     {
         var previous = updatingIcons; updatingIcons = true;
@@ -94,12 +159,7 @@ internal sealed class ManagerForm : Form
         var seenApps = new HashSet<string>(); var seenSystems = new HashSet<string>();
         status.Text = app.Status;
         var signature = string.Join("|", app.Monitors.Select(d => d.Id + d.Device));
-        if (signature != topology)
-        {
-            loading = true; var selected = monitors.CheckedItems.Cast<DisplayChoice>().Select(c => c.Display.Id).ToHashSet();
-            monitors.Items.Clear(); foreach (var monitor in app.Monitors) monitors.Items.Add(new DisplayChoice(monitor), selected.Count == 0 ? monitor.Primary : selected.Contains(monitor.Id));
-            topology = signature; monitors.SelectedIndex = monitors.Items.Count > 0 ? 0 : -1; loading = false;
-        }
+        if (signature != topology) RefreshMonitors(signature);
         try
         {
             using var snapshot = JsonDocument.Parse(File.ReadAllText(Path.Combine(NativeHost.DataDirectory, "inventory.json")));
@@ -147,11 +207,12 @@ internal sealed class ManagerForm : Form
             }
         }
         catch (IOException) { } catch (JsonException) { }
-        var savedApps = app.Settings.Overrides.Values.SelectMany(r => r.Icons).Concat(app.Settings.Defaults.Icons).ToHashSet();
-        var savedSystems = app.Settings.Overrides.Values.SelectMany(r => r.SystemIcons).Concat(app.Settings.Defaults.SystemIcons).ToHashSet();
+        var rules = app.Settings.Overrides.Values.Concat([app.Settings.Defaults]).Concat(drafts.Values).Append(ReadRule()).ToArray();
+        var savedApps = rules.SelectMany(r => r.Icons.Concat(r.ExcludedIcons)).ToHashSet();
+        var savedSystems = rules.SelectMany(r => r.SystemIcons).ToHashSet();
         UpdateIcons(() => Prune(icons, catalog, seenApps, savedApps, all.Checked));
         UpdateIcons(() => Prune(systemIcons, systemCatalog, seenSystems, savedSystems, allSystem.Checked));
-        foreach (var id in app.Settings.Overrides.Values.SelectMany(r => r.Icons).Concat(app.Settings.Defaults.Icons).Distinct())
+        foreach (var id in savedApps.Where(id => !id.StartsWith("app:" + Environment.ProcessPath + "#", StringComparison.OrdinalIgnoreCase)))
             if (!catalog.ContainsKey(id)) { var choice = new IconChoice(id, app.Settings.IconLabels.GetValueOrDefault(id, "Application icon") + " (offline)"); catalog[id] = choice; AddChoice(icons, choice, all.Checked || CurrentRule().Icons.Contains(id)); }
     }
     private static void Prune(CheckedListBox list, Dictionary<string, IconChoice> choices, HashSet<string> current, HashSet<string> saved, bool includeAll)
@@ -162,23 +223,49 @@ internal sealed class ManagerForm : Form
             if (!current.Contains(choice.Id) && !saved.Contains(choice.Id) && (includeAll || !list.GetItemChecked(i))) { choices.Remove(choice.Id); list.Items.RemoveAt(i); }
         }
     }
-    private TrayRule CurrentRule() => global.Checked || monitors.SelectedItem is not DisplayChoice choice ? app.Settings.Defaults : app.Settings.For(choice.Display);
+    private TrayRule CurrentRule()
+    {
+        var scope = global.Checked ? GlobalScope : viewedMonitor;
+        if (scope is not null && drafts.TryGetValue(scope, out var draft)) return draft;
+        var display = app.Monitors.FirstOrDefault(display => display.Id == viewedMonitor);
+        return global.Checked || display is null ? app.Settings.Defaults : app.Settings.For(display);
+    }
     private void LoadRule()
     {
         UpdateIcons(() =>
         {
+            editorScope = global.Checked ? GlobalScope : viewedMonitor;
             var rule = CurrentRule(); enabled.Checked = rule.Enabled; all.Checked = rule.AllApplications; quick.Checked = rule.QuickSettings; clock.Checked = rule.Clock; indicators.Checked = rule.SystemIndicators; allSystem.Checked = rule.AllSystemIcons;
             for (int i = 0; i < icons.Items.Count; i++) icons.SetItemChecked(i, rule.AllApplications || rule.Icons.Contains(((IconChoice)icons.Items[i]).Id));
             for (int i = 0; i < systemIcons.Items.Count; i++) systemIcons.SetItemChecked(i, rule.AllSystemIcons || rule.SystemIcons.Contains(((IconChoice)systemIcons.Items[i]).Id));
         });
+        UpdateTargets();
     }
+    private TrayRule ReadRule() => new() { Enabled = enabled.Checked, AllApplications = all.Checked, Icons = all.Checked ? new() : icons.CheckedItems.Cast<IconChoice>().Select(i => i.Id).ToHashSet(), ExcludedIcons = all.Checked ? new() : icons.Items.Cast<IconChoice>().Where((_, index) => !icons.GetItemChecked(index)).Select(i => i.Id).ToHashSet(), AllSystemIcons = allSystem.Checked, SystemIcons = allSystem.Checked ? new() : systemIcons.CheckedItems.Cast<IconChoice>().Select(i => i.Id).ToHashSet(), QuickSettings = quick.Checked, Clock = clock.Checked, SystemIndicators = indicators.Checked };
     private void Apply()
     {
-        var rule = new TrayRule { Enabled = enabled.Checked, AllApplications = all.Checked, Icons = all.Checked ? new() : icons.CheckedItems.Cast<IconChoice>().Select(i => i.Id).ToHashSet(), AllSystemIcons = allSystem.Checked, SystemIcons = allSystem.Checked ? new() : systemIcons.CheckedItems.Cast<IconChoice>().Select(i => i.Id).ToHashSet(), QuickSettings = quick.Checked, Clock = clock.Checked, SystemIndicators = indicators.Checked };
-        if (global.Checked) app.Settings.Defaults = rule;
-        else app.Settings.ApplyTo(monitors.CheckedItems.Cast<DisplayChoice>().Select(c => c.Display), rule);
-        app.Save();
+        var targets = monitorRows.Where(row => row.Mark.Checked).Select(row => row.Display).ToArray();
+        if (!global.Checked && targets.Length == 0) return;
+        SaveDraft(); var rule = ReadRule();
+        if (global.Checked)
+        {
+            app.Settings.Defaults = rule;
+            drafts.Remove(GlobalScope);
+            foreach (var display in app.Monitors.Where(display => !app.Settings.Overrides.ContainsKey(display.Id))) drafts.Remove(display.Id);
+        }
+        else
+        {
+            app.Settings.ApplyTo(targets, rule);
+            foreach (var display in targets) drafts.Remove(display.Id);
+        }
+        app.Save(); LoadRule();
     }
-    private sealed record DisplayChoice(DisplayInfo Display) { public override string ToString() => $"{Display.Device.Replace(@"\\.\", "")} · {Display.Name}{(Display.Primary ? " (primary)" : "")}"; }
+    private void UseDefaults()
+    {
+        SaveDraft();
+        foreach (var row in monitorRows.Where(row => row.Mark.Checked)) { app.Settings.Overrides.Remove(row.Display.Id); drafts.Remove(row.Display.Id); }
+        app.Save(); LoadRule();
+    }
+    private sealed record MonitorRow(DisplayInfo Display, CheckBox Mark, RadioButton View);
     private sealed record IconChoice(string Id, string Label) { public override string ToString() => Label; }
 }
