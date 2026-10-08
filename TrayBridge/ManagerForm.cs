@@ -5,8 +5,8 @@ internal sealed class ManagerForm : Form
 {
     private readonly TrayApplication app;
     private readonly CheckedListBox monitors = new() { Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false };
-    private readonly CheckedListBox icons = new() { Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false };
-    private readonly CheckedListBox systemIcons = new() { Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false };
+    private readonly CheckedListBox icons = new() { Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false, AccessibleName = "Application icons" };
+    private readonly CheckedListBox systemIcons = new() { Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false, AccessibleName = "Windows system icons" };
     private readonly CheckBox allSystem = new() { Text = "All system icons (including newly appearing indicators)", Dock = DockStyle.Top, Height = 35, Checked = true };
     private readonly CheckBox global = new() { Text = "Edit global defaults", AutoSize = true };
     private readonly CheckBox enabled = new() { Text = "Show a tray on selected monitors", AutoSize = true, Checked = true };
@@ -18,6 +18,7 @@ internal sealed class ManagerForm : Form
     private readonly Label status = new() { Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
     private readonly Label target = new() { Text = "Select one or more monitors, then apply the same settings to them.", AutoSize = true };
     private bool loading;
+    private bool updatingIcons;
     private readonly Dictionary<string, IconChoice> catalog = new();
     private readonly Dictionary<string, IconChoice> systemCatalog = new();
     private string topology = "";
@@ -39,7 +40,7 @@ internal sealed class ManagerForm : Form
         layout.Controls.Add(left, 0, 2);
         var right = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7 };
         foreach (var control in new Control[] { enabled, all, quick, clock, indicators }) { right.RowStyles.Add(new(SizeType.Absolute, 32)); right.Controls.Add(control, 0, right.Controls.Count); }
-        right.RowStyles.Add(new(SizeType.Absolute, 30)); right.Controls.Add(new Label { Text = "Choose icons for the selected trays", AutoSize = true }, 0, 5);
+        right.RowStyles.Add(new(SizeType.Absolute, 30)); right.Controls.Add(new Label { Text = "Uncheck an icon to customize; then Apply settings.", AutoSize = true }, 0, 5);
         var tabs = new TabControl { Dock = DockStyle.Fill };
         var appsPage = new TabPage("Applications"); appsPage.Controls.Add(icons);
         var systemPage = new TabPage("Windows controls & indicators"); systemPage.Controls.Add(systemIcons); systemPage.Controls.Add(allSystem);
@@ -55,8 +56,8 @@ internal sealed class ManagerForm : Form
         layout.Controls.Add(status, 0, 4); layout.SetColumnSpan(status, 2); Controls.Add(layout);
         foreach (var list in new[] { monitors, icons, systemIcons }) { list.BackColor = Color.FromArgb(34, 39, 49); list.ForeColor = ForeColor; list.BorderStyle = BorderStyle.None; }
         allSystem.BackColor = BackColor; allSystem.ForeColor = ForeColor;
-        all.CheckedChanged += (_, _) => icons.Enabled = !all.Checked;
-        allSystem.CheckedChanged += (_, _) => systemIcons.Enabled = !allSystem.Checked;
+        ConnectSelection(icons, all);
+        ConnectSelection(systemIcons, allSystem);
         global.CheckedChanged += (_, _) => { monitors.Enabled = !global.Checked; LoadRule(); };
         monitors.SelectedIndexChanged += (_, _) => { if (!loading) LoadRule(); };
         startup.Checked = app.Settings.StartWithWindows;
@@ -66,6 +67,27 @@ internal sealed class ManagerForm : Form
         RefreshState(); LoadRule();
     }
     private static Button Button(string text, EventHandler click) { var button = new Button { Text = text, AutoSize = true, Height = 34, Padding = new(10, 3, 10, 3), ForeColor = Color.Black, BackColor = Color.WhiteSmoke, FlatStyle = FlatStyle.Flat }; button.Click += click; return button; }
+    private void UpdateIcons(Action update)
+    {
+        var previous = updatingIcons; updatingIcons = true;
+        try { update(); } finally { updatingIcons = previous; }
+    }
+    private void ConnectSelection(CheckedListBox list, CheckBox includeAll)
+    {
+        includeAll.CheckedChanged += (_, _) =>
+        {
+            if (updatingIcons || !includeAll.Checked) return;
+            UpdateIcons(() => { for (int i = 0; i < list.Items.Count; i++) list.SetItemChecked(i, true); });
+        };
+        list.ItemCheck += (_, e) =>
+        {
+            // ItemCheck runs before the clicked item's state changes. Preserve all
+            // other selections when the user first excludes an icon from all mode.
+            if (!updatingIcons && includeAll.Checked && e.NewValue == CheckState.Unchecked)
+                includeAll.Checked = false;
+        };
+    }
+    private void AddChoice(CheckedListBox list, IconChoice choice, bool selected) => UpdateIcons(() => list.Items.Add(choice, selected));
     private void RefreshState()
     {
         if (IsDisposed) return;
@@ -93,7 +115,7 @@ internal sealed class ManagerForm : Form
                         var key = id.GetString()!;
                         seenApps.Add(key);
                         app.Settings.IconLabels[key] = label;
-                        if (!catalog.ContainsKey(key)) { var choice = new IconChoice(key, label); catalog[key] = choice; icons.Items.Add(choice, CurrentRule().Icons.Contains(key)); }
+                        if (!catalog.ContainsKey(key)) { var choice = new IconChoice(key, label); catalog[key] = choice; AddChoice(icons, choice, all.Checked || CurrentRule().Icons.Contains(key)); }
                     }
                     else if (element.GetProperty("class").GetString() == "SystemTray.IconView" && element.TryGetProperty("identity", out var systemId) && !string.IsNullOrWhiteSpace(systemId.GetString()))
                     {
@@ -104,7 +126,7 @@ internal sealed class ManagerForm : Form
                         var label = text.StartsWith("Clock") ? "Clock" : text.StartsWith("Notifications") ? "Notifications" : text.StartsWith("Network") ? "Network" : text.StartsWith("Volume") ? "Volume" : text.StartsWith("Power") || text.StartsWith("Battery") ? "Battery / power" : text.Split('\n')[0];
                         if (label.Length > 85) label = label[..85] + "…";
                         app.Settings.IconLabels[key] = label;
-                        if (!systemCatalog.ContainsKey(key)) { var choice = new IconChoice(key, label); systemCatalog[key] = choice; systemIcons.Items.Add(choice, CurrentRule().SystemIcons.Contains(key)); }
+                        if (!systemCatalog.ContainsKey(key)) { var choice = new IconChoice(key, label); systemCatalog[key] = choice; AddChoice(systemIcons, choice, allSystem.Checked || CurrentRule().SystemIcons.Contains(key)); }
                     }
         }
         catch (IOException) { } catch (JsonException) { }
@@ -121,37 +143,38 @@ internal sealed class ManagerForm : Form
                 if (string.IsNullOrWhiteSpace(label)) label = element.GetProperty("appName").GetString() ?? "Application icon";
                 if (label.Length > 85) label = label[..85] + "…";
                 app.Settings.IconLabels[id] = label;
-                var choice = new IconChoice(id, label + " (hidden icons)"); catalog[id] = choice; icons.Items.Add(choice, CurrentRule().Icons.Contains(id));
+                var choice = new IconChoice(id, label + " (hidden icons)"); catalog[id] = choice; AddChoice(icons, choice, all.Checked || CurrentRule().Icons.Contains(id));
             }
         }
         catch (IOException) { } catch (JsonException) { }
         var savedApps = app.Settings.Overrides.Values.SelectMany(r => r.Icons).Concat(app.Settings.Defaults.Icons).ToHashSet();
         var savedSystems = app.Settings.Overrides.Values.SelectMany(r => r.SystemIcons).Concat(app.Settings.Defaults.SystemIcons).ToHashSet();
-        Prune(icons, catalog, seenApps, savedApps);
-        Prune(systemIcons, systemCatalog, seenSystems, savedSystems);
+        UpdateIcons(() => Prune(icons, catalog, seenApps, savedApps, all.Checked));
+        UpdateIcons(() => Prune(systemIcons, systemCatalog, seenSystems, savedSystems, allSystem.Checked));
         foreach (var id in app.Settings.Overrides.Values.SelectMany(r => r.Icons).Concat(app.Settings.Defaults.Icons).Distinct())
-            if (!catalog.ContainsKey(id)) { var choice = new IconChoice(id, app.Settings.IconLabels.GetValueOrDefault(id, "Application icon") + " (offline)"); catalog[id] = choice; icons.Items.Add(choice, CurrentRule().Icons.Contains(id)); }
+            if (!catalog.ContainsKey(id)) { var choice = new IconChoice(id, app.Settings.IconLabels.GetValueOrDefault(id, "Application icon") + " (offline)"); catalog[id] = choice; AddChoice(icons, choice, all.Checked || CurrentRule().Icons.Contains(id)); }
     }
-    private static void Prune(CheckedListBox list, Dictionary<string, IconChoice> choices, HashSet<string> current, HashSet<string> saved)
+    private static void Prune(CheckedListBox list, Dictionary<string, IconChoice> choices, HashSet<string> current, HashSet<string> saved, bool includeAll)
     {
         for (int i = list.Items.Count - 1; i >= 0; i--)
         {
             var choice = (IconChoice)list.Items[i];
-            if (!current.Contains(choice.Id) && !saved.Contains(choice.Id) && !list.GetItemChecked(i)) { choices.Remove(choice.Id); list.Items.RemoveAt(i); }
+            if (!current.Contains(choice.Id) && !saved.Contains(choice.Id) && (includeAll || !list.GetItemChecked(i))) { choices.Remove(choice.Id); list.Items.RemoveAt(i); }
         }
     }
     private TrayRule CurrentRule() => global.Checked || monitors.SelectedItem is not DisplayChoice choice ? app.Settings.Defaults : app.Settings.For(choice.Display);
     private void LoadRule()
     {
-        var rule = CurrentRule(); enabled.Checked = rule.Enabled; all.Checked = rule.AllApplications; quick.Checked = rule.QuickSettings; clock.Checked = rule.Clock; indicators.Checked = rule.SystemIndicators; allSystem.Checked = rule.AllSystemIcons;
-        for (int i = 0; i < icons.Items.Count; i++) icons.SetItemChecked(i, rule.Icons.Contains(((IconChoice)icons.Items[i]).Id));
-        icons.Enabled = !all.Checked;
-        for (int i = 0; i < systemIcons.Items.Count; i++) systemIcons.SetItemChecked(i, rule.SystemIcons.Contains(((IconChoice)systemIcons.Items[i]).Id));
-        systemIcons.Enabled = !allSystem.Checked;
+        UpdateIcons(() =>
+        {
+            var rule = CurrentRule(); enabled.Checked = rule.Enabled; all.Checked = rule.AllApplications; quick.Checked = rule.QuickSettings; clock.Checked = rule.Clock; indicators.Checked = rule.SystemIndicators; allSystem.Checked = rule.AllSystemIcons;
+            for (int i = 0; i < icons.Items.Count; i++) icons.SetItemChecked(i, rule.AllApplications || rule.Icons.Contains(((IconChoice)icons.Items[i]).Id));
+            for (int i = 0; i < systemIcons.Items.Count; i++) systemIcons.SetItemChecked(i, rule.AllSystemIcons || rule.SystemIcons.Contains(((IconChoice)systemIcons.Items[i]).Id));
+        });
     }
     private void Apply()
     {
-        var rule = new TrayRule { Enabled = enabled.Checked, AllApplications = all.Checked, Icons = icons.CheckedItems.Cast<IconChoice>().Select(i => i.Id).ToHashSet(), AllSystemIcons = allSystem.Checked, SystemIcons = systemIcons.CheckedItems.Cast<IconChoice>().Select(i => i.Id).ToHashSet(), QuickSettings = quick.Checked, Clock = clock.Checked, SystemIndicators = indicators.Checked };
+        var rule = new TrayRule { Enabled = enabled.Checked, AllApplications = all.Checked, Icons = all.Checked ? new() : icons.CheckedItems.Cast<IconChoice>().Select(i => i.Id).ToHashSet(), AllSystemIcons = allSystem.Checked, SystemIcons = allSystem.Checked ? new() : systemIcons.CheckedItems.Cast<IconChoice>().Select(i => i.Id).ToHashSet(), QuickSettings = quick.Checked, Clock = clock.Checked, SystemIndicators = indicators.Checked };
         if (global.Checked) app.Settings.Defaults = rule;
         else app.Settings.ApplyTo(monitors.CheckedItems.Cast<DisplayChoice>().Select(c => c.Display), rule);
         app.Save();

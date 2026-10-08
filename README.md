@@ -12,7 +12,7 @@ Windows must show a taskbar on each target monitor. Enable **Show my taskbar on 
 
 1. Click **Enable**. First use downloads matching debug symbols directly from Microsoft; no Windhawk program, service or mod package is downloaded. Allow the preparation step to finish.
 2. Check one or more connected monitors. Select a monitor to load its current rule into the editor.
-3. Leave **All applications** checked to mirror the native application icons, or uncheck it and choose individual icons. The **Windows controls & indicators** tab provides individual system-icon choices; the group switches control Quick Settings, clock/notifications, and input/privacy surfaces.
+3. Application icons are always clickable. Leave **All applications** checked to include every current and newly appearing icon. Uncheck any individual icon to switch to a custom selection while keeping the others selected. Checking **All applications** again selects everything and includes new icons automatically. The **Windows controls & indicators** tab works the same way for individual system icons; the group switches control Quick Settings, clock/notifications, and input/privacy surfaces.
 4. Click **Apply settings** to copy the displayed rule to the checked monitors. Select **Edit global defaults** to change the rule inherited by monitors without an override. **Use global defaults** removes selected overrides.
 5. Open **Show Hidden Icons** once after enabling to discover the current hidden icon catalog. Hidden icons remain in the native overflow popup, filtered for the monitor that opened it. Their assignment does not change Windows' promoted/hidden preference.
 
