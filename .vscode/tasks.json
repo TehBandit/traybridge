@@ -3,8 +3,14 @@
     "tasks": [
         {
             "label": "build",
-            "command": "dotnet",
+            "command": "${workspaceFolder}/.tools/dotnet/dotnet.exe",
             "type": "process",
+            "options": {
+                "env": {
+                    "DOTNET_CLI_HOME": "${workspaceFolder}/.tools/dotnet-home",
+                    "NUGET_PACKAGES": "${workspaceFolder}/.tools/packages"
+                }
+            },
             "args": [
                 "build",
                 "${workspaceFolder}/TrayBridge/TrayBridge.csproj",
@@ -15,8 +21,14 @@
         },
         {
             "label": "publish",
-            "command": "dotnet",
+            "command": "${workspaceFolder}/.tools/dotnet/dotnet.exe",
             "type": "process",
+            "options": {
+                "env": {
+                    "DOTNET_CLI_HOME": "${workspaceFolder}/.tools/dotnet-home",
+                    "NUGET_PACKAGES": "${workspaceFolder}/.tools/packages"
+                }
+            },
             "args": [
                 "publish",
                 "${workspaceFolder}/TrayBridge/TrayBridge.csproj",
@@ -27,8 +39,16 @@
         },
         {
             "label": "watch",
-            "command": "dotnet",
+            "command": "${workspaceFolder}/.tools/dotnet/dotnet.exe",
             "type": "process",
+            "options": {
+                "env": {
+                    "DOTNET_ROOT": "${workspaceFolder}/.tools/dotnet",
+                    "DOTNET_ROOT_X64": "${workspaceFolder}/.tools/dotnet",
+                    "DOTNET_CLI_HOME": "${workspaceFolder}/.tools/dotnet-home",
+                    "NUGET_PACKAGES": "${workspaceFolder}/.tools/packages"
+                }
+            },
             "args": [
                 "watch",
                 "run",

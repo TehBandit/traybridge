@@ -7,3 +7,5 @@ artifacts/
 *.user
 .vs/
 .vscode/settings.json
+*.pfx
+*.p12

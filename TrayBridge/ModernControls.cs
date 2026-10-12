@@ -16,6 +16,16 @@ internal static class UiTheme
     internal static Color Muted => SystemInformation.HighContrast ? SystemColors.WindowText : Dark ? Color.FromArgb(180, 180, 180) : Color.FromArgb(100, 100, 100);
     internal static Color Accent => SystemColors.Highlight;
     internal static Color Selection => SystemInformation.HighContrast ? SystemColors.Highlight : Dark ? Color.FromArgb(34, 56, 72) : Color.FromArgb(232, 242, 252);
+    internal static Bitmap SettingsIcon()
+    {
+        var image = new Bitmap(24, 24);
+        using var graphics = Graphics.FromImage(image);
+        using var font = new Font("Segoe Fluent Icons", 22, FontStyle.Regular, GraphicsUnit.Pixel);
+        graphics.Clear(Color.Transparent);
+        TextRenderer.DrawText(graphics, "\uE713", font, new Rectangle(0, 0, 24, 24), Text,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        return image;
+    }
     internal static GraphicsPath Rounded(RectangleF rect, float radius)
     {
         var path = new GraphicsPath(); float d = radius * 2;
@@ -79,6 +89,69 @@ internal sealed class ModernButton : Button
         var textColor = !Enabled ? UiTheme.Muted : Primary ? SystemColors.HighlightText : UiTheme.Text;
         TextRenderer.DrawText(e.Graphics, Text, Font, ClientRectangle, textColor, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
         if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -4, -4), textColor, fillColor);
+    }
+}
+
+// Inherit the native checkbox's keyboard and accessibility behavior.
+internal sealed class PillToggle : CheckBox
+{
+    internal PillToggle()
+    {
+        AutoSize = false; Size = new(112, 28); Cursor = Cursors.Hand;
+        SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+    }
+    protected override void OnCheckedChanged(EventArgs e) { Invalidate(); base.OnCheckedChanged(e); }
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        e.Graphics.Clear(BackColor); e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        float scale = DeviceDpi / 96f;
+        var track = new RectangleF(1, (Height - 20 * scale) / 2, 40 * scale, 20 * scale);
+        var fillColor = Checked && Enabled ? UiTheme.Accent : UiTheme.Background;
+        using var path = UiTheme.Rounded(track, track.Height / 2);
+        using var fill = new SolidBrush(fillColor);
+        using var border = new Pen(Enabled ? Checked ? UiTheme.Accent : UiTheme.Muted : UiTheme.Border, scale);
+        e.Graphics.FillPath(fill, path); e.Graphics.DrawPath(border, path);
+        float inset = 4 * scale, diameter = track.Height - inset * 2;
+        using var thumb = new SolidBrush(!Enabled ? UiTheme.Muted : Checked ? SystemColors.HighlightText : UiTheme.Text);
+        e.Graphics.FillEllipse(thumb, Checked ? track.Right - inset - diameter : track.X + inset, track.Y + inset, diameter, diameter);
+        int textStart = (int)(track.Right + 8 * scale);
+        var textColor = Enabled ? UiTheme.Text : UiTheme.Muted;
+        TextRenderer.DrawText(e.Graphics, Text, Font, new Rectangle(textStart, 0, Math.Max(0, Width - textStart), Height), textColor,
+            TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
+        if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(ClientRectangle, -1, -1), textColor, BackColor);
+    }
+}
+
+internal sealed class SettingsTabs : TabControl
+{
+    internal SettingsTabs()
+    {
+        DrawMode = TabDrawMode.OwnerDrawFixed; Padding = new(12, 6);
+        SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+    }
+    protected override void OnPaintBackground(PaintEventArgs e) => e.Graphics.Clear(UiTheme.Surface);
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        using var border = new Pen(UiTheme.Border);
+        e.Graphics.DrawLine(border, 0, DisplayRectangle.Top - 2, Width, DisplayRectangle.Top - 2);
+        for (int i = 0; i < TabCount; i++)
+            OnDrawItem(new DrawItemEventArgs(e.Graphics, Font, GetTabRect(i), i, i == SelectedIndex ? DrawItemState.Selected : DrawItemState.None));
+    }
+    protected override void OnDrawItem(DrawItemEventArgs e)
+    {
+        bool selected = e.Index == SelectedIndex;
+        var background = UiTheme.Surface;
+        using var fill = new SolidBrush(background); e.Graphics.FillRectangle(fill, e.Bounds);
+        TextRenderer.DrawText(e.Graphics, TabPages[e.Index].Text, Font, e.Bounds, selected ? UiTheme.Text : UiTheme.Muted,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        if (selected)
+        {
+            using var accent = new Pen(UiTheme.Accent, 2 * DeviceDpi / 96f);
+            e.Graphics.DrawLine(accent, e.Bounds.Left + 8, e.Bounds.Bottom - 2, e.Bounds.Right - 8, e.Bounds.Bottom - 2);
+            if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, Rectangle.Inflate(e.Bounds, -3, -3));
+        }
     }
 }
 

@@ -1,78 +1,88 @@
-# TrayBridge
+﻿# TrayBridge
 
-A standalone Windows 11 app that puts native notification areas on multiple taskbars and lets you choose which icons appear on each monitor. **Windhawk is not required or installed.** Selected upstream source is built into TrayBridge's own native helper.
+TrayBridge puts Windows' native notification area on your other monitors and lets you choose which application icons and Windows controls appear on each taskbar. Keep chat on one screen, music on another, or show the same icons everywhere.
 
-Current target: Windows 11 25H2 x64, build **26200.9457**. This is an early, current-build implementation; other Windows builds and ARM64 have not been validated.
+Open TrayBridge, enable it, choose a display, select its icons, and click **Apply**. Application icons keep their normal click and menu behavior. Windhawk is not required or installed.
 
-## Use
+[**Download the Windows x64 ZIP — 0.1.5 preview**](https://github.com/TehBandit/traybridge/releases/download/v0.1.5/TrayBridge-0.1.5-win-x64.zip) · [Release notes and checksums](https://github.com/TehBandit/traybridge/releases/tag/v0.1.5) · [Report a bug](https://github.com/TehBandit/traybridge/issues)
 
-Run `TrayBridge.exe` from the extracted release folder. Its primary-tray icon opens **Manage trays**; its right-click menu also provides **Show all icons**, **Restore saved assignments**, **Disable**, and **Exit**.
+**Supported: Windows 11 25H2 x64, OS build 26200.9457 only.** This is an unsigned preview. Other Windows builds and ARM64 are refused before taskbar changes. Run `winver` to check your OS build; a Windows update may require a newer compatible TrayBridge release.
 
-Windows must show a taskbar on each target monitor. Enable **Show my taskbar on all displays** in Windows' Taskbar settings if a connected display has no taskbar.
+![TrayBridge walkthrough: enable, choose Display 2, select application icons, apply, and save the configuration](https://raw.githubusercontent.com/TehBandit/traybridge/v0.1.5/docs/assets/traybridge-demo.gif)
 
-1. Click **Enable**. First use downloads matching debug symbols directly from Microsoft; no Windhawk program, service or mod package is downloaded. Allow the preparation step to finish.
-2. Click a monitor's name to view its settings. Only one monitor is viewed at a time. The separate checkboxes mark which monitors receive **Apply**; checking a box does not change the editor. **Select/deselect all** marks or clears every connected monitor without changing the settings being viewed. The editor shows the viewed monitor and the number of marked targets. Unapplied edits are kept while switching between monitor names; click **Apply** to save them.
-3. Application icons are always clickable. Leave **All applications** checked to include every current and newly appearing icon. Uncheck any individual icon to switch to a custom selection while keeping the others selected. Checking **All applications** again selects everything and includes new icons automatically. The adjacent **Windows controls** section works the same way for individual system icons; the group switches control Quick Settings, clock/notifications, and input/privacy surfaces.
-4. Click **Apply** to copy the displayed rule to every marked monitor. To change one monitor independently, mark only its checkbox. Clicking another monitor's name only changes the settings being viewed and preserves the marked targets. **Apply** is disabled when no monitors are marked.
-5. Open **Show Hidden Icons** once after enabling to discover the current hidden icon catalog. Hidden icons remain in the native overflow popup, filtered for the monitor that opened it. Their assignment does not change Windows' promoted/hidden preference.
+*The walkthrough shows the actual settings UI with sample monitors and icons. The taskbars beneath it are illustrations.*
 
-**Set global config** saves the complete applied configuration across all monitors, including independent monitor rules, disconnected-monitor assignments, default rules, and whether tray management is enabled. Click **Apply** first to include pending edits. **Revert to global config** restores that complete snapshot across all monitors; it is available after you save a global config. Restoring uses independent copies, so further edits do not change the saved snapshot.
+## Use TrayBridge
 
-**Reset to Windows** disables cloning, restores native Windows taskbars, and clears current custom assignments. It keeps the saved global config and the sign-in preference, so **Revert to global config** can recover the saved setup. The separate service area contains **Enable** and **Disable**. **Settings > Start at sign-in** controls startup. Disable restores Windows taskbars while keeping current assignments; Enable resumes them without applying pending edits.
+1. In Windows **Settings → Personalization → Taskbar → Taskbar behaviors**, enable **Show my taskbar on all displays**.
+2. Run `TrayBridge.exe` and click **Enable**. First use downloads matching Windows debug symbols directly from Microsoft; allow preparation to finish.
+3. Click a display's name to view its settings. Mark the checkbox beside each display that should receive **Apply**. To customize one monitor, mark only that monitor.
+4. In **Applications**, leave **All applications** checked to show current and future icons, or uncheck individual icons to customize the selection. Use **Windows controls** to choose system icons, Quick Settings, the clock, and input/privacy indicators.
+5. Click **Apply**. Repeat for other monitors to give each its own selection.
+6. Optional: click **Set global config** to save the complete applied setup. **Revert to global config** restores it later.
 
-The compact management window shows Applications and Windows controls side by side. Each section has its own search box above a scrollable icon list. Search filters labels and icon identities without changing selections, including items hidden by the filter; Apply always saves the complete selection. All-icon switches include the full list and new icons even while searching. The monitor picker scrolls horizontally when needed.
+Click TrayBridge's icon on the primary taskbar to reopen **Manage trays**. Closing the management window leaves the app running. Use the tray menu's **Exit** to quit and restore Windows' taskbars. **Settings → Start at sign-in** is optional and off by default.
 
-**Settings > Appearance** offers **System (default)**, **Light**, and **Dark**. System follows the Windows app appearance and updates while the window is open. The preference is saved independently of tray assignments; resetting Windows taskbars or restoring a global config keeps it. Native window controls, keyboard navigation, accessibility patterns, and high-contrast colors remain supported. System color-mode support is provided by [.NET Windows Forms](https://learn.microsoft.com/dotnet/api/system.windows.forms.application.setcolormode).
+**Show all icons** temporarily reveals icons without deleting saved assignments. **Restore saved assignments** returns to your rules. **Reset to Windows** disables tray cloning and clears assignments while keeping your saved global configuration and preferences. Open **Show Hidden Icons** once after enabling to discover overflow icons.
 
-The same icon can appear on several monitors or only one. TrayBridge's management icon is exempt from filtering on the primary monitor. Explicitly unchecked application icons stay hidden on that monitor, including primary, even if unchecked everywhere. Newly appearing icons that have not been assigned or explicitly excluded remain recoverable on primary. Existing custom rules from v0.1.1 are upgraded using the known application catalog so their unchecked icons stay excluded. **Show all icons** temporarily reveals everything without deleting saved assignments; **Restore saved assignments** returns to them.
+See [detailed usage](https://github.com/TehBandit/traybridge/blob/v0.1.5/docs/usage.md) for bulk selection, searches, themes, disconnected monitors, and saved configurations.
 
-Rules are keyed by physical monitor paths rather than display numbers. Explicit icon assignments belonging to a disconnected monitor temporarily fall back to primary and return when it reconnects. Sign-in startup is optional and off by default. Closing the settings window leaves the controller running; use **Exit** to quit and restore Windows' native taskbars.
+## Download and install
 
-## How it works
+1. [Download `TrayBridge-0.1.5-win-x64.zip`](https://github.com/TehBandit/traybridge/releases/download/v0.1.5/TrayBridge-0.1.5-win-x64.zip). The release page's **Source code** downloads are for building the app, not running it.
+2. Right-click the ZIP and select **Extract All**. Keep the complete release together in a dedicated, writable folder on a local NTFS drive, such as `%LOCALAPPDATA%\Programs\TrayBridge`.
+3. Run `TrayBridge.exe` from that folder. Keep `TrayBridge.Native.dll`, `TrayBridge.Symbols.exe`, and the included notices alongside it.
 
-The managed controller owns the UI, monitor detection, settings and lifetime. The native helper runs inside this user's Explorer and ShellHost processes. It shares Windows' live tray view models into secondary taskbar XAML islands, filters each view independently, and preserves the native application callbacks and upstream flyout/menu handling. It never edits the application's icon or removes that application's registration.
+There is no installer wizard. The published app includes .NET; users do not need Node.js, `npx`, .NET, developer tools, or Windhawk. Windows PowerShell is used by the app's uninstall and recovery process. Restricted PowerShell policies and alternative taskbars are unsupported.
 
-Application identity uses the registered icon GUID when available, otherwise the executable path plus icon UID on the validated current build. Private interfaces and instruction patterns are checked against matching module symbols. If a particular icon implementation is unsupported, its opaque Windows ID is retained; that icon may need reassignment if Windows recreates it. Concurrent instances of the same executable using the same UID currently share an assignment.
+**Unsigned preview:** Windows or your browser may warn that the download is uncommon or the publisher is unknown. Download only from this repository's release page and inspect the source/checksums if needed. Some device policies and Smart App Control configurations can block execution. This release does not ask you to disable security protections. See [Microsoft's explanation of download reputation](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation).
 
-Settings and local inventories live in `%LOCALAPPDATA%\TrayBridge`. They contain local executable paths and tooltips and stay on the device. The app has no analytics. Internet access is used for Microsoft symbol preparation; cached operation is local.
+The release includes `SHA256SUMS.txt`, matching source, and `release.json` identifying the exact tag, source commit, and unsigned status. Checksums detect file changes; they are not a publisher certificate. To check the downloaded ZIP in PowerShell:
 
-Disabling restores the native properties/bindings changed by this app. A process lease also restores them if the controller exits unexpectedly. Hook trampolines and the helper remain dormant in the shell until the shell exits, avoiding unsafe unloading while a callback may be returning. Windows updates can change private taskbar interfaces: mandatory symbol/host validation failures leave cloning disabled.
+```powershell
+Get-FileHash .\TrayBridge-0.1.5-win-x64.zip -Algorithm SHA256
+```
 
-## Validation
+Compare the result with its line in `SHA256SUMS.txt` on the release page.
 
-Verified on the current machine with two 1920×1080 taskbars:
+## Upgrade or roll back
 
-- Five native application icons cloned onto both taskbars.
-- Stoplight's running icon exclusively on secondary, with its unread/error icons on primary.
-- Volume and network glyphs assigned independently to different monitors.
-- Secondary overflow filtered to one assigned test icon, with a native click reaching its owning process.
-- Disable/restore and a second enable/disable cycle without restarting Explorer.
-- Global inheritance, independent bulk rules, disconnect/reconnect routing, disabled-rule handling, global snapshots, Windows reset, and appearance preferences checked with policy tests.
-- Both search filters preserve hidden selections through live refresh and Apply; all-icon switches cover filtered-out items.
-- Compact side-by-side layout checked at 860x570 and 980x650; Light, Dark, and System preferences switch without applying pending edits.
+Exit the old controller and keep its folder as a rollback copy. Extract the new release into a separate folder. If an older helper remains resident or restoration cannot be confirmed, sign out or restart before starting the new version. Avoid running different versions together.
 
-Battery, language/IME, and camera/microphone indicators use the shared system-stack path and become selectable when Windows exposes their glyphs. Hardware/session conditions for those indicators and physical monitor unplug/replug have not been exercised on this desktop. Flyout placement and some system-menu behavior remain sensitive to Windows changes; this release is a prerelease.
+Settings are shared between copies under `%LOCALAPPDATA%\TrayBridge`. Back them up before upgrading; older versions may not understand newer settings. To roll back, exit the new controller, sign out/restart if necessary, and run the preserved older version on its supported Windows build.
+
+## Uninstall
+
+Open **Manage trays → Settings → Uninstall TrayBridge…**. Review the files/settings listed and confirm removal. The app restores Windows' taskbars and removes the running published copy and its individually verified local data, including assignments and saved global configuration.
+
+Unknown files, edited documentation, other copies, and older files without ownership records are preserved. Taskbar restoration failures stop removal and explain the next step. **A restart may be required to finish uninstallation.** If files remain in use, cleanup retries at the next sign-in up to three times; the recovery screen lets you inspect, retry, or stop a verified cleanup registration.
+
+To stop using TrayBridge while keeping your setup, choose **Disable** or **Exit** from its tray menu. Merely deleting the extracted folder does not remove saved settings or an optional sign-in registration; use the built-in uninstall flow for full removal.
+
+## Compatibility, privacy, and support
+
+- Supported target: **Windows 11 25H2 x64 build 26200.9457**, native Windows taskbars, writable local NTFS storage. Other patch levels and ARM64 are unsupported.
+- The native helper runs inside this user's Explorer and ShellHost processes. Windows updates can change the private interfaces it uses. Symbol/host validation failures leave cloning disabled.
+- Settings, icon inventories, and diagnostics stay under `%LOCALAPPDATA%\TrayBridge`; the app has no analytics. Internet access is used for Microsoft symbol preparation. Cached operation is local.
+- Report ordinary bugs through [GitHub Issues](https://github.com/TehBandit/traybridge/issues). Include your Windows build and TrayBridge version, and redact local paths, tooltips, and application names from logs.
+- Report vulnerabilities through [GitHub private vulnerability reporting](https://github.com/TehBandit/traybridge/security/advisories/new). See [SECURITY.md](https://github.com/TehBandit/traybridge/blob/v0.1.5/SECURITY.md).
+
+This is a preview. Isolated checks cover restoration outcomes, uninstall/recovery, release metadata, and packaging. A complete real sign-out/reboot/uninstall lifecycle was not tested for this release. See [release notes](https://github.com/TehBandit/traybridge/blob/v0.1.5/docs/releases/0.1.5.md) and [verification details](https://github.com/TehBandit/traybridge/blob/v0.1.5/docs/production-readiness.md).
 
 ## Build from source
 
-Requirements: Windows x64, .NET 10 SDK, Visual C++ x64 build tools and Windows SDK with C++/WinRT headers. The current native code also builds with VS 2019 Build Tools / SDK 10.0.19041.
+The toolchain is pinned in `global.json` and `release-toolchain.json`: .NET SDK 10.0.401, runtime 10.0.12, Visual C++ 14.29.30133, and Windows SDK 10.0.19041.0 with C++/WinRT headers. Install the native build tools, then run from the repository root:
 
 ```powershell
-cd D:\traybridge
-.\setup.ps1                 # optional project-local Microsoft .NET SDK
-.\build.ps1 -Publish
+.\setup.ps1
+.\build.ps1 -Publish -Unsigned -TestNativeRestoration
 .\dist\TrayBridge.exe
 ```
 
-Use `-DotnetPath <path-to-dotnet.exe>` to select another installed SDK. `-NativeOnly` builds just the native DLL and symbol indexer. The published app is self-contained; the person running it does not need to install .NET or developer tools. Keep the native helper and symbol indexer alongside the app.
+`setup.ps1` installs the project-local .NET SDK. `-DotnetPath` selects another installed SDK; `-NativeOnly` builds just the native helper and symbol indexer; `-OutputDirectory` stages another folder. Use `build.ps1` to publish so verified uninstall hashes and cleanup code are embedded in the controller.
 
-```powershell
-.\dist\TrayBridge.exe --self-test
-.\dist\TrayBridge.exe --prepare
-.\dist\TrayBridge.exe --probe       # inventory without enabling cloning
-.\dist\TrayBridge.exe --test-route  # temporary live routing test; restores afterward
-```
+Public unsigned previews use `scripts/NewReleasePackage.ps1 -UnsignedPreview`: it requires a clean exact version tag, matching source/build/inventory, and a dependency review from the last 24 hours. `-UnsignedDevelopment` produces explicitly labeled development snapshots. Signed releases remain supported separately. See the [release procedure](https://github.com/TehBandit/traybridge/blob/v0.1.5/docs/releasing.md).
 
-Tests write reports under the local data directory. Run live tests with the normal controller exited. The fixture command `--fixture` adds a temporary icon for interaction checks and exits automatically after one minute.
+## License and credits
 
-See [LICENSE](LICENSE) and [third-party notices](THIRD-PARTY-NOTICES.md) for GPLv3 terms, upstream source revisions and retained MIT/BSD credits.
+TrayBridge is distributed under GPLv3. Selected upstream source is built into its native helper; see [LICENSE](https://github.com/TehBandit/traybridge/blob/v0.1.5/LICENSE) and [third-party notices](https://github.com/TehBandit/traybridge/blob/v0.1.5/THIRD-PARTY-NOTICES.md) for source revisions and retained credits. Matching source and notices accompany each release.

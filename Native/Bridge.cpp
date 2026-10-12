@@ -228,7 +228,7 @@ void SaveJson(std::wstring const& name, JsonObject const& object) {
     auto destination = std::filesystem::path(bridgeDirectory) / name;
     auto temporary = destination; temporary += L".tmp";
     { std::ofstream out(temporary, std::ios::binary | std::ios::trunc); out << Utf8(object.Stringify().c_str()); }
-    MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH);
+    if (MoveFileExW(temporary.c_str(), destination.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) RecordOwnedFile(destination);
 }
 static JsonObject Describe(FrameworkElement element) {
     JsonObject item;
@@ -366,17 +366,19 @@ static void ResidentWorker() {
             if (window) RunFromWindowThread(window, TickOnTaskbarThread, &settings);
             if (auto overflowWindow = overflowDispatchWindow.load()) RunFromWindowThread(overflowWindow, [](void*) { try { RefreshOverflow(); } catch (...) {} }, nullptr);
         }
-        if (auto overflowWindow = overflowDispatchWindow.load()) RunFromWindowThread(overflowWindow, RestoreBridgeOverflow, nullptr);
+        if (auto overflowWindow = overflowDispatchWindow.load()) if (!RunFromWindowThread(overflowWindow, RestoreBridgeOverflow, nullptr)) bridgeRestorationConfirmed.store(false);
         Wh_ModBeforeUninit();
         // Keep trampolines and this DLL resident: other shell threads may still
         // be returning through a hook. Disabled hooks are safe to re-enable.
         MH_DisableHook(MH_ALL_HOOKS);
         Status(L"stopped");
     } catch (winrt::hresult_error const& error) {
+        bridgeRestorationConfirmed.store(false);
         bridgeStatus = error.message().c_str();
         if (initialized) { if (auto overflowWindow = overflowDispatchWindow.load()) RunFromWindowThread(overflowWindow, RestoreBridgeOverflow, nullptr); Wh_ModBeforeUninit(); }
         MH_DisableHook(MH_ALL_HOOKS); Status(L"error");
     } catch (std::exception const& error) {
+        bridgeRestorationConfirmed.store(false);
         bridgeStatus = winrt::to_hstring(error.what()).c_str();
         if (initialized) { if (auto overflowWindow = overflowDispatchWindow.load()) RunFromWindowThread(overflowWindow, RestoreBridgeOverflow, nullptr); Wh_ModBeforeUninit(); }
         MH_DisableHook(MH_ALL_HOOKS); Status(L"error");
@@ -384,6 +386,7 @@ static void ResidentWorker() {
     bridgeRunning.store(false);
 }
 extern "C" __declspec(dllexport) DWORD WINAPI TrayBridgeInitialize(void* argument) {
+    if (!bridgeRestorationConfirmed.load()) return 5;
     if (bridgeRunning.exchange(true)) return 0;
     winrt::init_apartment(winrt::apartment_type::multi_threaded);
     bridgeDirectory = static_cast<wchar_t*>(argument); bridgeStop.store(false); bridgeStatus.clear();
@@ -396,6 +399,10 @@ extern "C" __declspec(dllexport) DWORD WINAPI TrayBridgeStop(void*) {
     bridgeStop.store(true);
     for (int i = 0; bridgeRunning.load() && i < 250; ++i) Sleep(100);
     return bridgeRunning.load() ? 4 : 0;
+}
+extern "C" __declspec(dllexport) DWORD WINAPI TrayBridgeStopForUninstall(void* argument) {
+    auto result = TrayBridgeStop(argument);
+    return result != 0 ? result : bridgeRestorationConfirmed.load() ? 0 : 5;
 }
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, void*) {
     if (reason == DLL_PROCESS_ATTACH) DisableThreadLibraryCalls(instance);

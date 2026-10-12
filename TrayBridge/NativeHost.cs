@@ -15,6 +15,7 @@ internal static class NativeHost
 
     public static async Task PrepareSymbols(Action<string>? progress = null, CancellationToken cancellation = default)
     {
+        PlatformSupport.EnsureSupported();
         Directory.CreateDirectory(Path.Combine(DataDirectory, "symbols"));
         using var shell = Shell;
         var paths = shell.Modules.Cast<ProcessModule>().Where(m => m.ModuleName.Equals("taskbar.dll", StringComparison.OrdinalIgnoreCase) || m.ModuleName.Equals("SystemTray.dll", StringComparison.OrdinalIgnoreCase) || m.ModuleName.Equals("twinui.pcshell.dll", StringComparison.OrdinalIgnoreCase)).Select(m => m.FileName).ToArray();
@@ -39,7 +40,7 @@ internal static class NativeHost
                 using var response = await client.GetAsync($"https://msdl.microsoft.com/download/symbols/{pdbName}/{identity}/{pdbName}", HttpCompletionOption.ResponseHeadersRead, cancellation);
                 response.EnsureSuccessStatusCode();
                 var temp = pdb + ".tmp";
-                try { await using (var output = File.Create(temp)) await response.Content.CopyToAsync(output, cancellation); File.Move(temp, pdb, true); }
+                try { await using (var output = File.Create(temp)) await response.Content.CopyToAsync(output, cancellation); File.Move(temp, pdb, true); FileOwnership.Record(pdb); }
                 finally { if (File.Exists(temp)) File.Delete(temp); }
             }
             progress?.Invoke("Indexing " + Path.GetFileName(path));
@@ -53,6 +54,7 @@ internal static class NativeHost
             if (helper.ExitCode != 0) throw new InvalidOperationException("Symbol indexing failed: " + await error);
             _ = await stdout;
             File.Move(mapPath + ".tmp", mapPath, true);
+            FileOwnership.Record(mapPath);
         }
         progress?.Invoke("Matching Windows symbols are ready.");
     }
@@ -60,6 +62,7 @@ internal static class NativeHost
     public static uint Probe() { Directory.CreateDirectory(DataDirectory); using var process = Shell; return Invoke(process, "TrayBridgeInspect", DataDirectory); }
     public static uint Start()
     {
+        PlatformSupport.EnsureSupported();
         using var process = Shell;
         var code = Invoke(process, "TrayBridgeInitialize", DataDirectory);
         if (code != 0) return code;
@@ -69,20 +72,48 @@ internal static class NativeHost
     }
     public static void Stop()
     {
-        using var process = Shell;
-        var code = Invoke(process, "TrayBridgeStop");
-        if (code != 0) throw new InvalidOperationException("The shell is still restoring its taskbars. Try Disable again.");
-        foreach (var host in Process.GetProcessesByName("ShellHost")) using (host)
-            if (host.SessionId == Process.GetCurrentProcess().SessionId) Invoke(host, "TrayBridgeStop");
+        // Use only already-loaded helpers, including after a Windows update.
+        // Stopping must never inject a helper or report an unconfirmed restore.
+        StopForUninstall();
+    }
+    internal static void StopForUninstall()
+    {
+        using var current = Process.GetCurrentProcess();
+        foreach (var process in Process.GetProcessesByName("explorer").Concat(Process.GetProcessesByName("ShellHost"))) using (process)
+        {
+            if (process.SessionId != current.SessionId) continue;
+            if (TrayBridge.UninstallSupport.SafeFiles.CurrentUserProcess(process) != true) throw new InvalidOperationException("The desktop shell's user identity could not be verified; program files were preserved.");
+            try
+            {
+                foreach (var module in process.Modules.Cast<ProcessModule>().Where(m =>
+                    System.Text.RegularExpressions.Regex.IsMatch(m.ModuleName, @"^TrayBridge\.Native\.[A-F0-9]{16}\.dll$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+                    && TrayBridge.UninstallSupport.SafeFiles.Within(m.FileName, Path.Combine(DataDirectory, "native"))).ToArray())
+                {
+                    var remoteHandle = OpenProcess(0x043A, false, process.Id);
+                    if (remoteHandle == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+                    try
+                    {
+                        var export = LoadedHelper.Export(remoteHandle, module.BaseAddress, "TrayBridgeStopForUninstall");
+                        if (export == IntPtr.Zero) throw new InvalidOperationException("Restart Windows to unload an older TrayBridge helper, then try uninstalling again.");
+                        var code = RunRemote(remoteHandle, export, null);
+                        if (code != 0) throw new InvalidOperationException($"Windows taskbar restoration could not be confirmed ({process.ProcessName}, code {code}). Restart Windows, then retry uninstalling.");
+                    }
+                    finally { CloseHandle(remoteHandle); }
+                }
+            }
+            catch (InvalidOperationException) when (process.HasExited) { /* A departed shell has no active helper state. */ }
+        }
     }
     public static uint Invoke(Process process, string export, string? argument = null)
     {
+        // Also cover diagnostic entry points before any remote load/thread creation.
+        PlatformSupport.EnsureSupported();
         if (process.SessionId != Process.GetCurrentProcess().SessionId || process.ProcessName is not ("explorer" or "ShellHost")) throw new InvalidOperationException("Only the current user's desktop shell is supported.");
         var library = Path.Combine(Distribution, "TrayBridge.Native.dll");
         var fingerprint = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(library)))[..16];
         var loadedPath = Path.Combine(DataDirectory, "native", $"TrayBridge.Native.{fingerprint}.dll");
         Directory.CreateDirectory(Path.GetDirectoryName(loadedPath)!);
-        if (!File.Exists(loadedPath)) File.Copy(library, loadedPath);
+        if (!File.Exists(loadedPath)) { File.Copy(library, loadedPath); FileOwnership.Record(loadedPath); }
         var handle = OpenProcess(0x043A, false, process.Id);
         if (handle == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
         try

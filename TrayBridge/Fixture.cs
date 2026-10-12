@@ -8,7 +8,7 @@ internal sealed class Fixture : ApplicationContext
     internal Fixture()
     {
         icon = new() { Icon = SystemIcons.Information, Text = "Native tray routing test", Visible = true };
-        icon.MouseClick += (_, e) => { clicks++; File.WriteAllText(Path.Combine(NativeHost.DataDirectory, "fixture-result.json"), JsonSerializer.Serialize(new { Clicks = clicks, Button = e.Button.ToString() })); };
+        icon.MouseClick += (_, e) => { clicks++; FileOwnership.WriteText(Path.Combine(NativeHost.DataDirectory, "fixture-result.json"), JsonSerializer.Serialize(new { Clicks = clicks, Button = e.Button.ToString() })); };
         var menu = new ContextMenuStrip(); menu.Items.Add("Test menu (safe to dismiss)"); icon.ContextMenuStrip = menu;
         timer.Tick += (_, _) => ExitThread(); timer.Start();
     }

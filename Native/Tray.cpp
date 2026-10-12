@@ -2255,6 +2255,9 @@ void RestoreTrayProperties() {
             }
         } catch (...) {
             Wh_Log(L"failed to restore a modified tray property");
+            bridgeRestorationConfirmed.store(false);
+            // Keep the original identity/value for diagnosis and a later restore.
+            g_trayPropertyChanges.push_back(*it);
         }
     }
 }
@@ -2837,6 +2840,7 @@ bool ReleaseLegacyFrameMinWidth(FrameworkElement element, PCWSTR debugName) {
         return true;
     } catch (...) {
         Wh_Log(L"failed to release legacy %s minWidth pin", debugName);
+        if (IsModUnloading()) bridgeRestorationConfirmed.store(false);
 
         return false;
     }
@@ -2879,6 +2883,7 @@ bool ReleaseLegacyNotificationCenterPins(FrameworkElement element) {
         return true;
     } catch (...) {
         Wh_Log(L"failed to release legacy NotificationCenterButton pins");
+        if (IsModUnloading()) bridgeRestorationConfirmed.store(false);
 
         return false;
     }
@@ -2887,24 +2892,25 @@ bool ReleaseLegacyNotificationCenterPins(FrameworkElement element) {
 /// Taskbars whose SecondaryClockStack and ControlCenterButton order the mod swapped, so restore passes only undo their own swap. Taskbar thread only.
 std::vector<HWND> g_secondaryClockSwappedTaskbars;
 
+#include "Restoration.h"
+
 /// On builds that draw the secondary-taskbar clock through SecondaryClockStack, that stack sits right before ControlCenterButton in the template, so a copied control center landed on the right of the clock. Swaps the two so copies read like the primary (control center, then clock), and swaps back when the control center stops being managed or the mod unloads. Only the exact template order is touched, so themes that rearrange the tray keep their layout.
 /// @return true when the order changed
-bool UpdateSecondaryClockOrder(HWND taskbarWnd, TrayElementsView const& view, bool controlCenterFirst) {
-    if (!view.systemTrayFrameGrid || !view.secondaryClockStack || !view.controlCenterButton) {
-        return false;
-    }
-
+RestorationResult UpdateSecondaryClockOrderResult(HWND taskbarWnd, TrayElementsView const& view, bool controlCenterFirst) {
     auto swapped = std::find(g_secondaryClockSwappedTaskbars.begin(), g_secondaryClockSwappedTaskbars.end(), taskbarWnd);
     bool swappedByMod = swapped != g_secondaryClockSwappedTaskbars.end();
+    if (!view.systemTrayFrameGrid || !view.secondaryClockStack || !view.controlCenterButton) {
+        return !controlCenterFirst && swappedByMod ? RestorationResult::Failed : RestorationResult::NoChange;
+    }
 
     if (controlCenterFirst == swappedByMod) {
-        return false;
+        return RestorationResult::NoChange;
     }
 
     try {
         // Only reorder around a clock that is actually on screen : a collapsed SecondaryClockStack occupies no room, so there is nothing to fix
         if (controlCenterFirst && (view.secondaryClockStack.Visibility() != Visibility::Visible || view.secondaryClockStack.ActualWidth() < 1.0)) {
-            return false;
+            return RestorationResult::NoChange;
         }
 
         bool changed = false;
@@ -2936,7 +2942,7 @@ bool UpdateSecondaryClockOrder(HWND taskbarWnd, TrayElementsView const& view, bo
 
         if (controlCenterFirst && changed) {
             g_secondaryClockSwappedTaskbars.push_back(taskbarWnd);
-        } else if (!controlCenterFirst) {
+        } else if (!controlCenterFirst && changed) {
             g_secondaryClockSwappedTaskbars.erase(swapped);
         }
 
@@ -2948,12 +2954,19 @@ bool UpdateSecondaryClockOrder(HWND taskbarWnd, TrayElementsView const& view, bo
             );
         }
 
-        return changed;
+        // A tracked swap must actually be reversed before losing its record.
+        return changed ? RestorationResult::Changed : !controlCenterFirst && swappedByMod ? RestorationResult::Failed : RestorationResult::NoChange;
     } catch (...) {
         Wh_Log(L"failed to reorder the secondary clock");
 
-        return false;
+        return RestorationResult::Failed;
     }
+}
+
+bool UpdateSecondaryClockOrder(HWND taskbarWnd, TrayElementsView const& view, bool controlCenterFirst) {
+    auto result = UpdateSecondaryClockOrderResult(taskbarWnd, view, controlCenterFirst);
+    if (result == RestorationResult::Failed) bridgeRestorationConfirmed.store(false);
+    return result == RestorationResult::Changed;
 }
 
 /// True for the primary taskbar window class (Shell_TrayWnd)
@@ -2997,13 +3010,13 @@ bool IsCurrentPrimaryTrayBindingSource(HWND taskbarWnd, FrameworkElement trayRef
 void UpdateSharedSurfaceContextGestures(FrameworkElement element, HWND taskbarWnd, PCWSTR debugName);
 
 /// Re-attaches an ItemsControl's current ItemsSource in place. Several taskbar XAML interaction states follow the island that most recently attached the singleton source.
-bool ReattachItemsControlItemsSource(FrameworkElement element, PCWSTR debugName, PCWSTR reason) {
+RestorationResult ReattachItemsControlItemsSourceResult(FrameworkElement element, PCWSTR debugName, PCWSTR reason) {
     try {
         auto itemsControl = element ? element.try_as<Controls::ItemsControl>() : nullptr;
         winrt::Windows::Foundation::IInspectable itemsSource = itemsControl ? itemsControl.ItemsSource() : nullptr;
 
         if (!itemsSource) {
-            return false;
+            return RestorationResult::NoChange;
         }
 
         auto property = Controls::ItemsControl::ItemsSourceProperty();
@@ -3026,12 +3039,16 @@ bool ReattachItemsControlItemsSource(FrameworkElement element, PCWSTR debugName,
             Wh_Log(L"restored %s items source after native value reattachment left it empty (%s)", debugName, reason);
         }
 
-        return true;
+        return RestorationResult::Changed;
     } catch (...) {
         Wh_Log(L"failed to re-attach %s items source (%s)", debugName, reason);
 
-        return false;
+        return RestorationResult::Failed;
     }
+}
+
+bool ReattachItemsControlItemsSource(FrameworkElement element, PCWSTR debugName, PCWSTR reason) {
+    return ReattachItemsControlItemsSourceResult(element, debugName, reason) == RestorationResult::Changed;
 }
 
 /// Raw ABI pointer of an ItemsControl's current ItemsSource, nullptr for anything else
@@ -3249,13 +3266,17 @@ bool ApplyNativePrimaryStyle(XamlRoot xamlRoot, HWND taskbarWnd) {
         }
 
         // Recreating the native containers last also makes this island's chevron the tray drag/drop manager's registered drop target again
-        bool trayReattached = false;
-        trayReattached |= ReattachItemsControlItemsSource(view.notificationAreaIcons, L"NotificationAreaIcons", L"restore native tray ownership");
-        trayReattached |= ReattachItemsControlItemsSource(view.notifyIconStack, L"NotifyIconStack", L"restore native tray ownership");
-        trayReattached |= ReattachItemsControlItemsSource(FirstChildElement(view.notifyIconStack), L"NotifyIconStackChild", L"restore native tray ownership");
-        trayReattached |= ReattachItemsControlItemsSource(FindDescendantByClassName(view.notifyIconStack, L"SystemTray.StackListView"), L"NotifyIconStackListView", L"restore native tray ownership");
+        RestorationSummary trayRestore;
+        auto reattach = [&](FrameworkElement element, PCWSTR name) {
+            auto result = ReattachItemsControlItemsSourceResult(element, name, L"restore native tray ownership");
+            trayRestore.Add(result);
+        };
+        reattach(view.notificationAreaIcons, L"NotificationAreaIcons");
+        reattach(view.notifyIconStack, L"NotifyIconStack");
+        reattach(FirstChildElement(view.notifyIconStack), L"NotifyIconStackChild");
+        reattach(FindDescendantByClassName(view.notifyIconStack, L"SystemTray.StackListView"), L"NotifyIconStackListView");
 
-        if (trayReattached) {
+        if (trayRestore.changed) {
             UpdateLayoutBestEffort(view.systemTrayFrameGrid, L"restore native tray ownership");
         }
 
@@ -3263,12 +3284,18 @@ bool ApplyNativePrimaryStyle(XamlRoot xamlRoot, HWND taskbarWnd) {
         for (size_t i = 0; i < kSharedMenuSurfaceCount; i++) {
             SharedMenuSurface surface = static_cast<SharedMenuSurface>(i);
 
-            if (ReattachSharedMenuSurfaceItems(view, surface, L"restore native menu ownership")) {
+            auto host = GetSharedMenuSurfaceItemsHost(view, surface);
+            auto result = ReattachItemsControlItemsSourceResult(host, SharedMenuSurfaceToString(surface), L"restore native menu ownership");
+            if (result == RestorationResult::NoChange && SharedMenuSurfaceOwner(surface) && SharedMenuSurfaceOwner(surface) != taskbarWnd)
+                result = RestorationResult::Failed;
+            trayRestore.Add(result);
+            if (result == RestorationResult::Changed) {
                 SharedMenuSurfaceOwner(surface) = taskbarWnd;
+                UpdateLayoutBestEffort(host, L"restore native menu ownership");
             }
         }
 
-        return true;
+        return trayRestore.complete && bridgeRestorationConfirmed.load();
     } catch (const winrt::hresult_error& e) {
         Wh_Log(L"native primary restore failed with XAML error 0x%08X", static_cast<unsigned int>(e.code().value));
 
@@ -5713,6 +5740,7 @@ void RestoreNativeTaskbarsFromTaskbarThread(void*) {
             }
 
             if (!xamlRoot) {
+                bridgeRestorationConfirmed.store(false);
                 Wh_Log(
                     L"XamlRoot not found while "
                     L"restoring native state for monitor %d",
@@ -5723,15 +5751,15 @@ void RestoreNativeTaskbarsFromTaskbarThread(void*) {
             }
 
             if (primaryTaskbar) {
-                ApplyNativePrimaryStyle(xamlRoot, hWnd);
+                if (!ApplyNativePrimaryStyle(xamlRoot, hWnd)) bridgeRestorationConfirmed.store(false);
             } else {
                 try {
                     TrayElementsView view;
-                    if (CollectTrayElements(xamlRoot, hWnd, &view, L"native secondary restore") && UpdateSecondaryClockOrder(hWnd, view, false)) {
-                        UpdateLayoutBestEffort(view.systemTrayFrameGrid, L"native secondary restore");
-                    }
+                    if (!CollectTrayElements(xamlRoot, hWnd, &view, L"native secondary restore")) bridgeRestorationConfirmed.store(false);
+                    else if (UpdateSecondaryClockOrder(hWnd, view, false)) UpdateLayoutBestEffort(view.systemTrayFrameGrid, L"native secondary restore");
                 } catch (...) {
                     Wh_Log(L"native secondary restore failed with a XAML exception");
+                    bridgeRestorationConfirmed.store(false);
                 }
             }
 
@@ -5831,7 +5859,9 @@ bool RunFromWindowThread(HWND hWnd, RunFromWindowThreadProc_t proc, void* procPa
 /// Cancels retries and clears interaction/binding state on the taskbar thread before a settings reapply
 void ClearCachedXamlBindingsFromTaskbarThread(void*) {
     CancelDeferredApplySettings();
-    ClearProxyRuntimeState();
+    ClearSharedProxyFlyoutMonitorState();
+    ClearStickyOverflowPlacement(nullptr);
+    g_lastTrayIconInteraction = {};
     ClearCachedXamlBindings();
 }
 
@@ -6275,7 +6305,9 @@ void UninitFromTaskbarThread(void* parameter) {
     // The unloading hook passes Explorer's chosen monitor through, undoing selected-monitor retargeting.
     SendMessageW(taskbarWnd, 0x5B8, 0, 0);
     RemoveTaskbarSubclassesFromTaskbarThread(nullptr);
-    ClearCachedXamlBindings();
+    // Retain the sources needed to recover a failed restoration. The dormant
+    // helper stays resident until the shell exits; uninstall must not proceed.
+    if (bridgeRestorationConfirmed.load()) { ClearProxyRuntimeState(); ClearCachedXamlBindings(); }
 }
 
 /// Fallback when the taskbar thread couldn't run UninitFromTaskbarThread. Only use the per-window helper available in Windhawk 1.6.1 and 1.7.3, and leave XAML state on its owning thread.
@@ -6310,10 +6342,12 @@ void Wh_ModBeforeUninit() {
     if (!taskbarWnd) {
         // No taskbar thread is available to release UI objects. Keep the heap-backed references alive rather than releasing them from this thread.
         RemoveTaskbarSubclassesFromAnyThread();
+        bridgeRestorationConfirmed.store(false);
         return;
     }
 
     if (!RunFromWindowThread(taskbarWnd, UninitFromTaskbarThread, taskbarWnd)) {
+        bridgeRestorationConfirmed.store(false);
         Wh_Log(L"taskbar cleanup could not run; removing subclasses synchronously and retaining XAML references");
         RemoveTaskbarSubclassesFromAnyThread();
     }

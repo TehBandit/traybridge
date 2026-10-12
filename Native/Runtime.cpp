@@ -10,6 +10,29 @@
 #include <cstdarg>
 #include <algorithm>
 #include <shlobj.h>
+#include <atomic>
+
+std::atomic<bool> bridgeRestorationConfirmed{true};
+static void RecordOwnedFile(std::filesystem::path const& path) {
+    HANDLE file = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return;
+    BY_HANDLE_FILE_INFORMATION info{};
+    bool valid = GetFileInformationByHandle(file, &info) && !(info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) && info.nNumberOfLinks == 1;
+    CloseHandle(file);
+    if (!valid) return;
+    auto record = std::filesystem::path(path.parent_path()) / L"ownership" / (path.filename().wstring() + L".owner");
+    // The controller creates and validates this directory before starting a helper.
+    HANDLE output = CreateFileW(record.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (output == INVALID_HANDLE_VALUE) return;
+    BY_HANDLE_FILE_INFORMATION recordInfo{};
+    DWORD marker{}, read{};
+    if (!GetFileInformationByHandle(output, &recordInfo) || (recordInfo.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) || recordInfo.nNumberOfLinks != 1
+        || (recordInfo.nFileSizeLow != 0 && (recordInfo.nFileSizeHigh != 0 || recordInfo.nFileSizeLow != 16 || !ReadFile(output, &marker, 4, &read, nullptr) || read != 4 || marker != 0x314F4254))) { CloseHandle(output); return; }
+    DWORD values[] = { 0x314F4254, info.dwVolumeSerialNumber, info.nFileIndexHigh, info.nFileIndexLow }, written{};
+    SetFilePointer(output, 0, nullptr, FILE_BEGIN);
+    if (WriteFile(output, values, sizeof(values), &written, nullptr) && written == sizeof(values)) FlushFileBuffers(output);
+    CloseHandle(output);
+}
 
 std::wstring bridgeDirectory;
 std::wstring bridgeStatus;
@@ -22,6 +45,8 @@ void Wh_Log(PCWSTR format, ...) {
     std::lock_guard<std::mutex> guard(bridgeLogLock);
     std::wofstream log(std::filesystem::path(bridgeDirectory) / (L"native-" + std::to_wstring(GetCurrentProcessId()) + L".log"), std::ios::app);
     log << buffer << L'\n';
+    log.close();
+    RecordOwnedFile(std::filesystem::path(bridgeDirectory) / (L"native-" + std::to_wstring(GetCurrentProcessId()) + L".log"));
 }
 // Adapted from Windhawk LoadedMod::SetFunctionHook: create and queue, then apply in a batch.
 BOOL Wh_SetFunctionHook(void* target, void* hook, void** original) {

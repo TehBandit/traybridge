@@ -73,7 +73,7 @@ internal sealed class AppSettings
             return settings;
         }
         catch (FileNotFoundException) { return new(); }
-        catch (JsonException) { File.Copy(path, path + ".invalid-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss"), true); return new(); }
+        catch (JsonException) { var backup = path + ".invalid-" + DateTime.UtcNow.ToString("yyyyMMddHHmmss"); File.Copy(path, backup, true); FileOwnership.Record(backup); return new(); }
     }
     internal void UpgradeExclusions(IEnumerable<string> knownApplications)
     {
@@ -107,6 +107,7 @@ internal sealed class AppSettings
         var path = Path.Combine(NativeHost.DataDirectory, name);
         File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true }));
         File.Move(path + ".tmp", path, true);
+        FileOwnership.Record(path);
     }
     internal static void WriteNative(object value) => AtomicWrite("native-settings.json", value);
 }

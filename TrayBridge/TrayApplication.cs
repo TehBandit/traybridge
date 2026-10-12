@@ -9,7 +9,8 @@ internal sealed class TrayApplication : ApplicationContext
     internal IReadOnlyList<DisplayInfo> Monitors { get; private set; } = Displays.Read();
     internal event Action? Updated;
     internal string Status { get; private set; } = "Disabled — Windows' original taskbars are active.";
-    internal bool Busy => busy;
+    internal bool Busy => busy || exiting;
+    internal bool Uninstalling => busy && exiting;
     private readonly NotifyIcon tray;
     private readonly System.Windows.Forms.Timer timer = new() { Interval = 2000 };
     private readonly EventWaitHandle showRequest = new(false, EventResetMode.AutoReset, @"Local\TrayBridge.Show");
@@ -43,6 +44,7 @@ internal sealed class TrayApplication : ApplicationContext
         busy = true;
         try
         {
+            PlatformSupport.EnsureSupported();
             Status = "Preparing matching Windows symbols…"; Updated?.Invoke();
             await NativeHost.PrepareSymbols(message => { Status = message; Updated?.Invoke(); });
             Settings.Active = true; Persist();
@@ -76,6 +78,7 @@ internal sealed class TrayApplication : ApplicationContext
     }
     internal void SavePreferences()
     {
+        if (exiting) return;
         Persist();
         using var key = Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run", true);
         if (Settings.StartWithWindows) key?.SetValue("TrayBridge", $"\"{Environment.ProcessPath}\" --hidden");
@@ -102,6 +105,27 @@ internal sealed class TrayApplication : ApplicationContext
         Settings.Save(Monitors);
         if (recovery) AppSettings.WriteNative(new AppSettings { Active = Settings.Active }.Resolve(Monitors));
     }
+    internal async Task PrepareUninstall()
+    {
+        if (Busy) throw new InvalidOperationException("Wait for the current operation to finish before uninstalling.");
+        using var current = Process.GetCurrentProcess();
+        foreach (var other in Process.GetProcessesByName("TrayBridge")) using (other)
+            if (other.Id != current.Id && TrayBridge.UninstallSupport.SafeFiles.CurrentUserProcess(other) != false) throw new InvalidOperationException("Close other TrayBridge copies and sessions before uninstalling shared local data.");
+        busy = exiting = true; timer.Stop();
+        if (window is not null) window.Enabled = false;
+        if (tray.ContextMenuStrip is not null) tray.ContextMenuStrip.Enabled = false;
+        Settings.Active = false; Settings.Save(Monitors);
+        await Task.Run(NativeHost.StopForUninstall);
+        attached = false;
+    }
+    internal void CancelUninstall()
+    {
+        busy = exiting = false;
+        if (window is not null) window.Enabled = true;
+        if (tray.ContextMenuStrip is not null) tray.ContextMenuStrip.Enabled = true;
+        Status = "Disabled — uninstall did not finish."; timer.Start(); Updated?.Invoke();
+    }
+    internal void FinishUninstall() => ExitThread();
     private async Task Tick()
     {
         if (showRequest.WaitOne(0)) ShowManager();

@@ -1,0 +1,49 @@
+name: Stage signed release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing reviewed source tag, for example v0.1.5
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  stage:
+    # Configure this trusted runner with the pinned toolchain and signing provider.
+    runs-on: [self-hosted, Windows, X64, traybridge-signing]
+    environment: traybridge-release
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Build signed stage
+        env:
+          TRAYBRIDGE_SIGN_CERT_THUMBPRINT: ${{ vars.TRAYBRIDGE_SIGN_CERT_THUMBPRINT }}
+          TRAYBRIDGE_TIMESTAMP_SERVER: ${{ vars.TRAYBRIDGE_TIMESTAMP_SERVER }}
+        run: |
+          $stage = './artifacts/signed-' + [Guid]::NewGuid().ToString('N')
+          ./build.ps1 -Publish -TestNativeRestoration -OutputDirectory $stage
+          "TRAYBRIDGE_STAGE=$stage" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Verify local regressions
+        run: |
+          $env:DOTNET_CLI_HOME = "$pwd/.tools/dotnet-home"
+          $env:NUGET_PACKAGES = "$pwd/.tools/packages"
+          New-Item -ItemType Directory -Path ./artifacts/uninstall-release -Force | Out-Null
+          Copy-Item -LiteralPath "$env:TRAYBRIDGE_STAGE/TrayBridge.Native.dll" -Destination ./artifacts/uninstall-release/TrayBridge.Native.dll
+          dotnet run --project tests/TrayBridge.Uninstall.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Uninstall/recovery tests failed.' }
+          ./tests/ReleaseBuild.Tests.ps1
+          ./tests/ReleaseSigning.Tests.ps1
+      - name: Package tagged source and signed binaries
+        run: ./scripts/NewReleasePackage.ps1 -PublishedDirectory $env:TRAYBRIDGE_STAGE -OutputDirectory ./artifacts/public-package
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: TrayBridge-signed-release
+          path: artifacts/public-package/*
+          if-no-files-found: error

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\TrayBridge\UninstallSupport.cs" Link="UninstallSupport.cs" />
+    <Compile Include="..\TrayBridge\LoadedHelper.cs" Link="LoadedHelper.cs" />
+    <Compile Include="..\TrayBridge\FileOwnership.cs" Link="FileOwnership.cs" />
+    <Compile Include="..\TrayBridge\CleanupRecovery.cs" Link="CleanupRecovery.cs" />
+    <Compile Include="..\TrayBridge\Uninstaller.cs" Link="Uninstaller.cs" />
+    <Compile Include="..\TrayBridge\PlatformSupport.cs" Link="PlatformSupport.cs" />
+    <EmbeddedResource Include="..\TrayBridge\UninstallSupport.cs" LogicalName="TrayBridge.UninstallSupport.cs" />
+    <EmbeddedResource Include="..\TrayBridge\CleanupWorker.cs" LogicalName="TrayBridge.CleanupWorker.cs" />
+  </ItemGroup>
+</Project>

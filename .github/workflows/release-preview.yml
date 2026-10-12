@@ -1,0 +1,58 @@
+name: Publish unsigned preview
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing reviewed version tag
+        required: true
+        default: v0.1.5
+        type: string
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          global-json-file: global.json
+      - name: Validate requested version tag
+        env:
+          TRAYBRIDGE_RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          [xml]$project = Get-Content ./TrayBridge/TrayBridge.csproj -Raw
+          if ($env:TRAYBRIDGE_RELEASE_TAG -ne ('v' + $project.Project.PropertyGroup.Version)) { throw 'The input must be the exact project version tag.' }
+      - name: Audit dependencies
+        run: ./scripts/AuditDependencies.ps1
+      - name: Build unsigned preview and check native restoration
+        run: ./build.ps1 -Publish -Unsigned -TestNativeRestoration
+      - name: Verify uninstall, recovery, and release guards
+        run: |
+          $env:DOTNET_CLI_HOME = "$pwd/.tools/dotnet-home"
+          $env:NUGET_PACKAGES = "$pwd/.tools/packages"
+          dotnet run --project tests/TrayBridge.Uninstall.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Uninstall/recovery tests failed.' }
+          ./tests/ReleaseBuild.Tests.ps1
+          ./tests/ReleaseSigning.Tests.ps1
+          ./tests/UnsignedPreview.Tests.ps1 -PublishedDirectory ./dist
+      - name: Package exact tagged source and unsigned binaries
+        run: |
+          ./scripts/NewReleasePackage.ps1 -PublishedDirectory ./dist -OutputDirectory ./artifacts/preview-package -UnsignedPreview
+          ./tests/ReleasePackage.Tests.ps1 -PackageDirectory ./artifacts/preview-package -PublishedDirectory ./dist
+      - name: Publish GitHub prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TRAYBRIDGE_RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          $version = $env:TRAYBRIDGE_RELEASE_TAG.Substring(1)
+          gh release create $env:TRAYBRIDGE_RELEASE_TAG ./artifacts/preview-package/* --verify-tag --prerelease --title "TrayBridge $version preview (unsigned)" --notes-file "./docs/releases/$version.md"
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub preview publication failed.' }

@@ -56,7 +56,7 @@ internal static class Checks
         if (disabled.RootElement.GetProperty("monitors")[0].GetProperty("icons").EnumerateArray().Any(v => v.GetString() == "secondary-only")) throw new Exception("Disabled rules unexpectedly create fallback assignments.");
         settings.Overrides.Remove(secondary.Id);
         if (!ReferenceEquals(settings.For(secondary), settings.Defaults)) throw new Exception("Reset to global defaults failed.");
-        File.WriteAllText(Path.Combine(NativeHost.DataDirectory, "policy-report.json"), JsonSerializer.Serialize(new { Passed = true, Checks = new[] { "system appearance by default", "appearance persistence", "reset and global restore preserve appearance", "global inheritance", "independent bulk rules and exclusions", "single-monitor updates preserve other monitors", "native exclusion settings", "legacy selection upgrade", "complete global snapshot", "Windows reset preserves snapshot and startup preference", "independent global restoration", "global snapshot persistence", "disconnect recovery", "reconnect routing", "disabled assignments", "reset overrides" } }));
+        FileOwnership.WriteText(Path.Combine(NativeHost.DataDirectory, "policy-report.json"), JsonSerializer.Serialize(new { Passed = true, Checks = new[] { "system appearance by default", "appearance persistence", "reset and global restore preserve appearance", "global inheritance", "independent bulk rules and exclusions", "single-monitor updates preserve other monitors", "native exclusion settings", "legacy selection upgrade", "complete global snapshot", "Windows reset preserves snapshot and startup preference", "independent global restoration", "global snapshot persistence", "disconnect recovery", "reconnect routing", "disabled assignments", "reset overrides" } }));
     }
     internal static void Live(bool route)
     {
@@ -127,12 +127,12 @@ internal static class Checks
         finally
         {
             NativeHost.Stop();
-            if (prior is not null) File.WriteAllText(path, prior);
+            if (prior is not null) FileOwnership.WriteText(path, prior);
             else if (File.Exists(path)) File.Delete(path);
-            File.WriteAllText(Path.Combine(NativeHost.DataDirectory, "test-report.json"), JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
+            FileOwnership.WriteText(Path.Combine(NativeHost.DataDirectory, "test-report.json"), JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
         }
     }
-    private static void Write(AppSettings settings, IReadOnlyList<DisplayInfo> monitors, string path) { File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(settings.Resolve(monitors))); File.Move(path + ".tmp", path, true); }
+    private static void Write(AppSettings settings, IReadOnlyList<DisplayInfo> monitors, string path) { File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(settings.Resolve(monitors))); File.Move(path + ".tmp", path, true); FileOwnership.Record(path); }
     private static JsonDocument ReadInventory() => JsonDocument.Parse(File.ReadAllText(Path.Combine(NativeHost.DataDirectory, "inventory.json")));
     private static object Counts(JsonDocument inventory) => inventory.RootElement.GetProperty("taskbars").EnumerateArray().Select(t => new { Device = t.GetProperty("device").GetString(), Visible = t.GetProperty("elements").EnumerateArray().Count(e => e.GetProperty("class").GetString() == "SystemTray.NotifyIconView" && e.GetProperty("visible").GetBoolean()) }).ToArray();
 }

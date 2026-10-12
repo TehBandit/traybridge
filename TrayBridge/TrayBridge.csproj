@@ -7,7 +7,24 @@
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>TrayBridge</AssemblyName>
-    <Version>0.1.4</Version>
+    <Version>0.1.5</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <RuntimeFrameworkVersion>10.0.12</RuntimeFrameworkVersion>
+    <!-- Editor project loads must work offline. Keep auditing enabled for actual restores/builds. -->
+    <NuGetAudit Condition="'$(DesignTimeBuild)' == 'true'">false</NuGetAudit>
   </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="CleanupWorker.cs" />
+    <EmbeddedResource Include="UninstallSupport.cs" LogicalName="TrayBridge.UninstallSupport.cs" />
+    <EmbeddedResource Include="CleanupWorker.cs" LogicalName="TrayBridge.CleanupWorker.cs" />
+    <EmbeddedResource Include="$(TrayBridgeReleaseInventoryPath)" LogicalName="TrayBridge.UninstallRelease.xml" Condition="'$(TrayBridgePreparedRelease)' == 'true' And Exists('$(TrayBridgeReleaseInventoryPath)')" />
+  </ItemGroup>
+  <Target Name="ValidateTrayBridgeRelease" BeforeTargets="PrepareForBuild;PrepareForPublish" Condition="'$(PublishSingleFile)' == 'true' And '$(DesignTimeBuild)' != 'true'">
+    <Error Condition="'$(TrayBridgePreparedRelease)' != 'true'" Text="Publish TrayBridge using build.ps1 -Publish. Direct single-file publication cannot supply verified uninstall metadata." />
+    <Error Condition="!Exists('$(TrayBridgeReleaseInventoryPath)') Or '$(TrayBridgeReleaseInventoryHash)' == ''" Text="The prepared uninstall inventory is missing. Run build.ps1 again." />
+    <GetFileHash Files="$(TrayBridgeReleaseInventoryPath)" Algorithm="SHA256">
+      <Output TaskParameter="Hash" PropertyName="ActualTrayBridgeInventoryHash" />
+    </GetFileHash>
+    <Error Condition="'$(ActualTrayBridgeInventoryHash)' != '$(TrayBridgeReleaseInventoryHash)'" Text="The uninstall inventory changed after preparation. Run build.ps1 again." />
+  </Target>
 </Project>
