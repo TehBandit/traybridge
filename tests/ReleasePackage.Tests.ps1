@@ -31,3 +31,5 @@ if ($manifest.development) {
     catch { Check ($_.Exception.Message -match 'Commit the complete release source|Tag .*must identify|Unsigned release component|unknown revision|ambiguous argument') 'development output cannot pass public source/signature requirements' }
 }
 Write-Host "Passed $passed release-package checks."
+# Negative packaging checks can leave git/SignTool's failure status in the host.
+$global:LASTEXITCODE = 0

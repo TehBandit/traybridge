@@ -49,3 +49,5 @@ Fixture-Git @('add','-A')
 Fixture-Git @('-c','user.name=Preview fixture','-c','user.email=fixture@example.invalid','commit','--quiet','-m','New fixture source')
 Refuses @('-UnsignedPreview') 'must identify this exact source revision' 'unsigned preview rejects a tag pointing at another commit'
 Write-Host "Passed $passed unsigned-preview guard checks. Fixture: $fixture"
+# Expected child-process failures must not become the successful CI step's exit code.
+$global:LASTEXITCODE = 0
